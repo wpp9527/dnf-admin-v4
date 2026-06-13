@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DNF 后台管理系统 v4.0
+DNF 后台管理系统 v4.1
 参考 edict 架构：单文件dashboard + Python后端 + RESTful API
 """
 
@@ -8,12 +8,10 @@ import json
 import os
 import sys
 import pymysql
-import requests
-from datetime import datetime, timedelta
+import re
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-import threading
-import time
 
 # ==================== 配置 ====================
 
@@ -22,7 +20,8 @@ DB_CONFIG = {
     'port': 3307,
     'user': 'root',
     'password': '88888888',
-    'charset': 'utf8mb4',
+    'charset': 'latin1',
+    'use_unicode': False,
 }
 
 # 职业映射
@@ -40,44 +39,47 @@ JOBS = {
     900: '缪斯', 901: '旅人',
 }
 
+# 基础职业到高级职业映射
+JOB_TREE = {
+    0: [100, 101, 102, 103],  # 鬼剑士系
+    1: [200, 201, 202, 203],  # 格斗家系
+    2: [300, 301, 302, 303],  # 神枪手系
+    3: [400, 401, 402, 403],  # 魔法师系
+    4: [500, 501, 502, 503],  # 圣职者系
+    5: [600, 601, 602, 603],  # 暗夜使者系
+    6: [700, 701, 702, 703],  # 魔枪士系
+    7: [800, 801, 802, 803],  # 枪剑士系
+    8: [900, 901],            # 弓箭手系
+}
+
 # 高级职业到基础职业的映射
 JOB_TO_BASE = {
-    100: 0, 101: 0, 102: 0, 103: 0,  # 鬼剑士系
-    200: 1, 201: 1, 202: 1, 203: 1,  # 格斗家系
-    300: 2, 301: 2, 302: 2, 303: 2,  # 神枪手系
-    400: 3, 401: 3, 402: 3, 403: 3,  # 魔法师系
-    500: 4, 501: 4, 502: 4, 503: 4,  # 圣职者系
-    600: 5, 601: 5, 602: 5, 603: 5,  # 暗夜使者系
-    700: 6, 701: 6, 702: 6, 703: 6,  # 魔枪士系
-    800: 7, 801: 7, 802: 7, 803: 7,  # 枪剑士系
-    900: 8, 901: 8,  # 弓箭手系
+    100: 0, 101: 0, 102: 0, 103: 0,
+    200: 1, 201: 1, 202: 1, 203: 1,
+    300: 2, 301: 2, 302: 2, 303: 2,
+    400: 3, 401: 3, 402: 3, 403: 3,
+    500: 4, 501: 4, 502: 4, 503: 4,
+    600: 5, 601: 5, 602: 5, 603: 5,
+    700: 6, 701: 6, 702: 6, 703: 6,
+    800: 7, 801: 7, 802: 7, 803: 7,
+    900: 8, 901: 8,
 }
 
 # 数据目录
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
+# 缓存
+_pvf_items_cache = None
+_pvf_cache_time = 0
+
 # ==================== 数据库工具 ====================
-
-# 数据库配置（使用 latin1 以正确处理中文编码）
-DB_CONFIG_RAW = {
-    'host': '127.0.0.1',
-    'port': 3307,
-    'user': 'root',
-    'password': '88888888',
-    'charset': 'latin1',
-    'use_unicode': False,
-}
-
-def get_db():
-    """获取数据库连接"""
-    return pymysql.connect(**DB_CONFIG_RAW)
 
 def query_db(sql, params=None, db='taiwan_cain'):
     """查询数据库"""
     conn = None
     try:
-        config = {**DB_CONFIG_RAW, 'database': db}
+        config = {**DB_CONFIG, 'database': db}
         conn = pymysql.connect(**config)
         with conn.cursor(pymysql.cursors.DictCursor) as cursor:
             cursor.execute(sql, params or ())
@@ -89,23 +91,91 @@ def query_db(sql, params=None, db='taiwan_cain'):
         if conn:
             conn.close()
 
-def decode_row(value):
-    """解码数据库行中的字节值"""
+def decode_bytes(value):
+    """解码字节值"""
     if isinstance(value, bytes):
-        try:
-            # 尝试 UTF-8
-            return value.decode('utf-8')
-        except:
+        for encoding in ['utf-8', 'big5', 'cp950', 'gbk']:
             try:
-                # 尝试 Big5
-                return value.decode('big5')
+                return value.decode(encoding)
             except:
-                try:
-                    # 尝试 CP950
-                    return value.decode('cp950')
-                except:
-                    return value.decode('utf-8', errors='ignore')
+                continue
+        return value.decode('utf-8', errors='ignore')
     return value
+
+# ==================== PVF 物品加载 ====================
+
+def load_pvf_items():
+    """加载PVF物品数据（通过SSH读取远程服务器）"""
+    global _pvf_items_cache, _pvf_cache_time
+    import time
+    
+    # 缓存5分钟
+    if _pvf_items_cache and (time.time() - _pvf_cache_time < 300):
+        print(f"[PVF] 使用缓存: {len(_pvf_items_cache)}个物品")
+        return _pvf_items_cache
+    
+    items = []
+    print("[PVF] 开始加载PVF物品数据...")
+    
+    try:
+        import subprocess
+        # 通过SSH读取远程PVF文件
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'cat /opt/dnf-llnut/data/conf.d/dnf-console/source/gold.txt'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        
+        print(f"[PVF] SSH返回码: {result.returncode}, 输出长度: {len(result.stdout)}")
+        
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                match = re.match(r'\[(\d+)\s*\]\s*name:(.+)', line)
+                if match:
+                    item_id = int(match.group(1))
+                    item_name = match.group(2).strip()
+                    
+                    # 分类
+                    if item_id < 100:
+                        category = '消耗品'
+                    elif item_id < 10000:
+                        category = '材料'
+                    elif item_id < 1000000:
+                        category = '装备'
+                    else:
+                        category = '其他'
+                    
+                    items.append({
+                        'id': item_id,
+                        'name': item_name,
+                        'category': category
+                    })
+            print(f"[PVF] 加载完成: {len(items)}个物品")
+        else:
+            print(f"[PVF] SSH错误: {result.stderr}")
+    except Exception as e:
+        print(f"[PVF ERROR] {e}")
+    
+    _pvf_items_cache = items
+    _pvf_cache_time = time.time()
+    return items
+
+def get_item_name(item_id):
+    """获取物品名称（优先从PVF查询）"""
+    pvf_items = load_pvf_items()
+    for item in pvf_items:
+        if item['id'] == item_id:
+            return item['name']
+    
+    # 从数据库查询（dnf_item_info 在 taiwan_cain_web 数据库）
+    sql = "SELECT it_name FROM taiwan_cain_web.dnf_item_info WHERE it_no = %s"
+    result = query_db(sql, (item_id,), 'taiwan_cain_web')
+    if result:
+        name = decode_bytes(result[0].get('it_name'))
+        if name and not name.startswith('b\''):
+            return name
+    
+    return f"未知物品-{item_id}"
 
 # ==================== 数据加载 ====================
 
@@ -136,12 +206,10 @@ def load_characters(page=1, page_size=20, filters=None):
     count_sql = f"SELECT COUNT(*) as total FROM charac_info WHERE {where}"
     total = query_db(count_sql, params[:-2])[0]['total']
     
-    # 添加职业名称和解码
+    # 解码
     for c in chars:
         c['job_name'] = JOBS.get(c.get('job'), '未知')
-        # 解码角色名称
-        c['charac_name'] = decode_row(c.get('charac_name'))
-        # 格式化时间
+        c['charac_name'] = decode_bytes(c.get('charac_name'))
         for field in ['create_time', 'last_play_time']:
             if c.get(field) and hasattr(c[field], 'strftime'):
                 c[field] = c[field].strftime('%Y-%m-%d %H:%M:%S')
@@ -156,6 +224,7 @@ def load_character_detail(char_id):
         return None
     
     char = chars[0]
+    char['charac_name'] = decode_bytes(char.get('charac_name'))
     char['job_name'] = JOBS.get(char.get('job'), '未知')
     
     # 格式化时间
@@ -164,10 +233,9 @@ def load_character_detail(char_id):
             char[field] = char[field].strftime('%Y-%m-%d %H:%M:%S')
     
     # 加载背包物品
-    items_sql = "SELECT * FROM taiwan_cain_2nd.user_items WHERE charac_no = %s LIMIT 100"
+    items_sql = "SELECT * FROM taiwan_cain_2nd.user_items WHERE charac_no = %s ORDER BY slot LIMIT 100"
     items = query_db(items_sql, (char_id,), 'taiwan_cain_2nd')
     
-    # 物品槽位名称
     SLOT_NAMES = {
         0: '武器', 1: '上衣', 2: '头肩', 3: '下装', 4: '鞋',
         5: '腰带', 6: '项链', 7: '手镯', 8: '戒指', 9: '辅助装备',
@@ -182,123 +250,94 @@ def load_character_detail(char_id):
     
     for item in items:
         item['slot_name'] = SLOT_NAMES.get(item.get('slot'), f"槽位{item.get('slot')}")
-        # 尝试获取物品名称
-        item_sql = "SELECT it_name FROM dnf_item_info WHERE it_no = %s"
-        item_names = query_db(item_sql, (item.get('it_id'),), 'taiwan_cain')
-        if item_names:
-            name = item_names[0].get('it_name', b'')
-            if isinstance(name, bytes):
-                try:
-                    item['item_name'] = name.decode('utf-8')
-                except:
-                    try:
-                        item['item_name'] = name.decode('big5')
-                    except:
-                        item['item_name'] = f"物品-{item.get('it_id')}"
-            else:
-                item['item_name'] = name
-        else:
-            item['item_name'] = f"{item['slot_name']}-{item.get('it_id')}"
+        item['item_name'] = get_item_name(item.get('it_id'))
     
     char['inventory'] = items
     char['inventory_count'] = len(items)
     
+    # 加载角色技能（从skill表的skill_slot blob解析）
+    charac_no = char.get('charac_no')
+    if charac_no:
+        import zlib
+        import struct
+        
+        skill_sql = "SELECT skill_slot FROM taiwan_cain_2nd.skill WHERE charac_no = %s"
+        skill_data = query_db(skill_sql, (charac_no,), 'taiwan_cain_2nd')
+        
+        skill_list = []
+        if skill_data and skill_data[0].get('skill_slot'):
+            slot_data = skill_data[0]['skill_slot']
+            if isinstance(slot_data, bytes) and len(slot_data) > 4:
+                try:
+                    # 解压缩
+                    decompressed = zlib.decompress(slot_data[4:])
+                    
+                    # 解析为 1字节index + 1字节level
+                    for i in range(0, len(decompressed), 2):
+                        if i + 2 <= len(decompressed):
+                            skill_idx = decompressed[i]
+                            skill_level = decompressed[i+1]
+                            if skill_level > 0:
+                                # 查询技能名称
+                                skill_name_sql = "SELECT name FROM taiwan_cain_web.skill_info WHERE skill_index = %s AND job_index = %s AND module_type = 0 LIMIT 1"
+                                base_job = JOB_TO_BASE.get(char.get('job', 0), char.get('job', 0))
+                                skill_info = query_db(skill_name_sql, (skill_idx, base_job), 'taiwan_cain_web')
+                                
+                                skill_name = f'技能{skill_idx}'
+                                if skill_info:
+                                    skill_name = decode_bytes(skill_info[0].get('name'))
+                                
+                                skill_list.append({
+                                    'skill_index': skill_idx,
+                                    'name': skill_name,
+                                    'level': skill_level,
+                                })
+                except Exception as e:
+                    print(f"[SKILL ERROR] {e}")
+        
+        char['skills'] = skill_list
+        char['skills_count'] = len(skill_list)
+    
     return char
 
 def load_items(query='', page=1, page_size=50):
-    """加载物品列表（从PVF）"""
-    pvf_file = '/opt/dnf-llnut/data/conf.d/dnf-console/source/gold.txt'
-    
-    items = []
-    try:
-        with open(pvf_file, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                import re
-                match = re.match(r'\[(\d+)\s*\]\s*name:(.+)', line)
-                if match:
-                    item_id = int(match.group(1))
-                    item_name = match.group(2).strip()
-                    
-                    # 分类
-                    if item_id < 100:
-                        category = '消耗品'
-                    elif item_id < 10000:
-                        category = '材料'
-                    elif item_id < 1000000:
-                        category = '装备'
-                    else:
-                        category = '其他'
-                    
-                    items.append({
-                        'id': item_id,
-                        'name': item_name,
-                        'category': category
-                    })
-    except Exception as e:
-        print(f"[PVF ERROR] {e}")
+    """加载物品列表"""
+    pvf_items = load_pvf_items()
     
     # 搜索过滤
     if query:
-        items = [i for i in items if query.lower() in i['name'].lower()]
+        filtered = [i for i in pvf_items if query.lower() in i['name'].lower()]
+    else:
+        filtered = pvf_items
     
-    total = len(items)
+    total = len(filtered)
     start = (page - 1) * page_size
     end = start + page_size
     
-    return {'data': items[start:end], 'total': total, 'page': page, 'page_size': page_size}
+    return {'data': filtered[start:end], 'total': total, 'page': page, 'page_size': page_size}
 
 def load_skills(job_id, page=1, page_size=50):
     """加载技能列表"""
-    # 技能表在 taiwan_cain_web 数据库中
-    # 将高级职业ID映射到基础职业ID
     base_job = JOB_TO_BASE.get(job_id, job_id)
     
-    sql = "SELECT * FROM taiwan_cain_web.skill_info WHERE job_index = %s ORDER BY skill_index LIMIT %s OFFSET %s"
+    sql = "SELECT * FROM taiwan_cain_web.skill_info WHERE job_index = %s AND module_type = 0 ORDER BY skill_index LIMIT %s OFFSET %s"
     offset = (page - 1) * page_size
     skills = query_db(sql, (base_job, page_size, offset), 'taiwan_cain_web')
     
-    count_sql = "SELECT COUNT(*) as total FROM taiwan_cain_web.skill_info WHERE job_index = %s"
-    try:
-        total = query_db(count_sql, (base_job,), 'taiwan_cain_web')[0]['total']
-    except:
-        total = 0
+    count_sql = "SELECT COUNT(*) as total FROM taiwan_cain_web.skill_info WHERE job_index = %s AND module_type = 0"
+    total = query_db(count_sql, (base_job,), 'taiwan_cain_web')[0]['total']
     
-    # 解码技能名称和描述
+    # 解码
     for skill in skills:
-        # 解码名称
-        skill['name'] = decode_row(skill.get('name'))
-        
-        # 解码描述（Big5）
-        for field in ['basic_explain', 'skill_explain', 'command_key_explain', 'skill_command_advantage']:
+        skill['name'] = decode_bytes(skill.get('name'))
+        for field in ['basic_explain', 'skill_explain', 'command_key_explain']:
             if skill.get(field) and isinstance(skill[field], bytes):
-                try:
-                    skill[field] = skill[field].decode('big5')
-                except:
+                for enc in ['big5', 'cp950', 'utf-8']:
                     try:
-                        skill[field] = skill[field].decode('cp950')
+                        skill[field] = skill[field].decode(enc)
+                        break
                     except:
-                        skill[field] = skill[field].decode('utf-8', errors='ignore')
-    
-    # 解码技能描述
-    for skill in skills:
-        for field in ['basic_explain', 'skill_explain', 'command_key_explain', 'skill_command_advantage']:
-            if skill.get(field) and isinstance(skill[field], bytes):
-                try:
-                    skill[field] = skill[field].decode('big5')
-                except:
-                    try:
-                        skill[field] = skill[field].decode('cp950')
-                    except:
-                        skill[field] = skill[field].decode('utf-8', errors='ignore')
-        # 解码名称
-        if skill.get('name') and isinstance(skill['name'], bytes):
-            try:
-                skill['name'] = skill['name'].decode('utf-8')
-            except:
-                skill['name'] = skill['name'].decode('big5', errors='ignore')
+                        continue
     
     return {'data': skills, 'total': total, 'page': page, 'page_size': page_size}
 
@@ -318,15 +357,12 @@ def load_monsters(query='', page=1, page_size=50):
         count_params = ()
     
     monsters = query_db(sql, params)
-    total = query_db(count_sql, count_params)[0]['total']
+    total_result = query_db(count_sql, count_params)
+    total = total_result[0]['total'] if total_result else 0
     
-    # 解码名称
+    # 解码
     for m in monsters:
-        if m.get('mon_name_kr') and isinstance(m['mon_name_kr'], bytes):
-            try:
-                m['mon_name_kr'] = m['mon_name_kr'].decode('utf-8')
-            except:
-                m['mon_name_kr'] = m['mon_name_kr'].decode('big5', errors='ignore')
+        m['mon_name_kr'] = decode_bytes(m.get('mon_name_kr'))
     
     return {'data': monsters, 'total': total, 'page': page, 'page_size': page_size}
 
@@ -350,25 +386,15 @@ def gm_get_notice():
 
 def gm_send_item(charac_no, item_id, count=1, upgrade=0):
     """发送物品"""
-    # 这里应该调用游戏服务器API
-    return {
-        'status': 'success',
-        'message': f'已发送物品: 角色={charac_no}, 物品={item_id}, 数量={count}, 强化={upgrade}'
-    }
+    return {'status': 'success', 'message': f'已发送物品: 角色={charac_no}, 物品={item_id}, 数量={count}, 强化={upgrade}'}
 
 def gm_set_level(charac_no, level):
     """设置等级"""
-    return {
-        'status': 'success',
-        'message': f'已设置等级: 角色={charac_no}, 等级={level}'
-    }
+    return {'status': 'success', 'message': f'已设置等级: 角色={charac_no}, 等级={level}'}
 
 def gm_add_gold(charac_no, gold):
     """添加金币"""
-    return {
-        'status': 'success',
-        'message': f'已添加金币: 角色={charac_no}, 金币={gold}'
-    }
+    return {'status': 'success', 'message': f'已添加金币: 角色={charac_no}, 金币={gold}'}
 
 def gm_kick_user(uid):
     """踢出用户"""
@@ -376,59 +402,49 @@ def gm_kick_user(uid):
 
 def gm_ban_user(uid, reason='违规操作', duration=0):
     """封禁用户"""
-    return {
-        'status': 'success',
-        'message': f'已封禁用户: UID={uid}, 原因={reason}, 时长={duration}天'
-    }
+    return {'status': 'success', 'message': f'已封禁用户: UID={uid}, 原因={reason}'}
 
 def gm_unban_user(uid):
     """解封用户"""
     return {'status': 'success', 'message': f'已解封用户: UID={uid}'}
-
-def gm_recharge(uid, cera):
-    """充值"""
-    return {
-        'status': 'success',
-        'message': f'充值成功: UID={uid}, 金额={cera}'
-    }
 
 # ==================== 统计功能 ====================
 
 def get_stats():
     """获取统计数据"""
     try:
-        chars = query_db("SELECT COUNT(*) as total FROM charac_info")
-        total_chars = chars[0]['total'] if chars else 0
+        total_chars = query_db("SELECT COUNT(*) as total FROM charac_info")[0]['total']
     except:
         total_chars = 0
     
     try:
-        accounts = query_db("SELECT COUNT(*) as total FROM d_taiwan.accounts", db='d_taiwan')
-        total_accounts = accounts[0]['total'] if accounts else 0
+        total_accounts = query_db("SELECT COUNT(*) as total FROM d_taiwan.accounts", db='d_taiwan')[0]['total']
     except:
         total_accounts = 0
     
     try:
-        skills = query_db("SELECT COUNT(*) as total FROM skill_info")
-        total_skills = skills[0]['total'] if skills else 0
+        total_skills = query_db("SELECT COUNT(*) as total FROM taiwan_cain_web.skill_info WHERE module_type = 0", db='taiwan_cain_web')[0]['total']
     except:
         total_skills = 0
     
     try:
-        monsters = query_db("SELECT COUNT(*) as total FROM dnf_monster_info")
-        total_monsters = monsters[0]['total'] if monsters else 0
+        total_monsters = query_db("SELECT COUNT(*) as total FROM dnf_monster_info")[0]['total']
     except:
         total_monsters = 0
+    
+    pvf_items = load_pvf_items()
     
     return {
         'total_chars': total_chars,
         'total_accounts': total_accounts,
-        'total_items': 83977,  # PVF物品数
+        'total_items': len(pvf_items),
         'total_skills': total_skills,
         'total_monsters': total_monsters,
     }
 
 # ==================== HTTP Handler ====================
+
+import time
 
 class DNFHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -436,51 +452,55 @@ class DNFHandler(BaseHTTPRequestHandler):
         path = parsed.path
         params = parse_qs(parsed.query)
         
-        # 路由
-        if path == '/' or path == '/index.html':
-            self.serve_dashboard()
-        elif path == '/api/health':
-            self.json_response({'status': 'ok', 'version': '4.0.0'})
-        elif path == '/api/stats':
-            self.json_response(get_stats())
-        elif path == '/api/characters':
-            page = int(params.get('page', [1])[0])
-            page_size = int(params.get('page_size', [20])[0])
-            filters = {
-                'name': params.get('name', [None])[0],
-                'job': params.get('job', [None])[0],
-                'min_lev': params.get('min_lev', [None])[0],
-                'max_lev': params.get('max_lev', [None])[0],
-            }
-            self.json_response(load_characters(page, page_size, filters))
-        elif path.startswith('/api/character/'):
-            char_id = path.split('/')[-1]
-            result = load_character_detail(int(char_id))
-            if result:
-                self.json_response({'data': result})
+        try:
+            if path == '/' or path == '/index.html':
+                self.serve_dashboard()
+            elif path == '/api/health':
+                self.json_response({'status': 'ok', 'version': '4.1.0'})
+            elif path == '/api/stats':
+                self.json_response(get_stats())
+            elif path == '/api/characters':
+                page = int(params.get('page', [1])[0])
+                page_size = int(params.get('page_size', [20])[0])
+                filters = {
+                    'name': params.get('name', [None])[0],
+                    'job': params.get('job', [None])[0],
+                    'min_lev': params.get('min_lev', [None])[0],
+                    'max_lev': params.get('max_lev', [None])[0],
+                }
+                self.json_response(load_characters(page, page_size, filters))
+            elif path.startswith('/api/character/'):
+                char_id = path.split('/')[-1]
+                result = load_character_detail(int(char_id))
+                if result:
+                    self.json_response({'data': result})
+                else:
+                    self.json_response({'error': 'not found'}, 404)
+            elif path == '/api/items':
+                from urllib.parse import unquote
+                raw_query = params.get('q', [''])[0]
+                query = unquote(raw_query)
+                page = int(params.get('page', [1])[0])
+                page_size = int(params.get('page_size', [50])[0])
+                self.json_response(load_items(query, page, page_size))
+            elif path == '/api/skills':
+                job = int(params.get('job', [100])[0])
+                page = int(params.get('page', [1])[0])
+                page_size = int(params.get('page_size', [50])[0])
+                self.json_response(load_skills(job, page, page_size))
+            elif path == '/api/monsters':
+                query = params.get('q', [''])[0]
+                page = int(params.get('page', [1])[0])
+                page_size = int(params.get('page_size', [50])[0])
+                self.json_response(load_monsters(query, page, page_size))
+            elif path == '/api/gm/notice':
+                self.json_response(gm_get_notice())
+            elif path == '/api/jobs':
+                self.json_response({'jobs': JOBS, 'job_tree': JOB_TREE})
             else:
                 self.json_response({'error': 'not found'}, 404)
-        elif path == '/api/items':
-            query = params.get('q', [''])[0]
-            page = int(params.get('page', [1])[0])
-            page_size = int(params.get('page_size', [50])[0])
-            self.json_response(load_items(query, page, page_size))
-        elif path == '/api/skills':
-            job = params.get('job', [100])[0]
-            page = int(params.get('page', [1])[0])
-            page_size = int(params.get('page_size', [50])[0])
-            self.json_response(load_skills(int(job), page, page_size))
-        elif path == '/api/monsters':
-            query = params.get('q', [''])[0]
-            page = int(params.get('page', [1])[0])
-            page_size = int(params.get('page_size', [50])[0])
-            self.json_response(load_monsters(query, page, page_size))
-        elif path == '/api/gm/notice':
-            self.json_response(gm_get_notice())
-        elif path == '/api/jobs':
-            self.json_response({'jobs': JOBS})
-        else:
-            self.json_response({'error': 'not found'}, 404)
+        except Exception as e:
+            self.json_response({'error': str(e)}, 500)
     
     def do_POST(self):
         content_length = int(self.headers.get('Content-Length', 0))
@@ -489,39 +509,34 @@ class DNFHandler(BaseHTTPRequestHandler):
         
         path = urlparse(self.path).path
         
-        if path == '/api/gm/notice/save':
-            self.json_response(gm_save_notice(data.get('content', '')))
-        elif path == '/api/gm/send-item':
-            self.json_response(gm_send_item(
-                data.get('charac_no'),
-                data.get('item_id'),
-                data.get('count', 1),
-                data.get('upgrade', 0)
-            ))
-        elif path == '/api/gm/set-level':
-            self.json_response(gm_set_level(data.get('charac_no'), data.get('level')))
-        elif path == '/api/gm/add-gold':
-            self.json_response(gm_add_gold(data.get('charac_no'), data.get('gold')))
-        elif path == '/api/gm/kick':
-            self.json_response(gm_kick_user(data.get('uid')))
-        elif path == '/api/gm/ban':
-            self.json_response(gm_ban_user(
-                data.get('uid'),
-                data.get('reason', '违规操作'),
-                data.get('duration', 0)
-            ))
-        elif path == '/api/gm/unban':
-            self.json_response(gm_unban_user(data.get('uid')))
-        elif path == '/api/gm/recharge':
-            self.json_response(gm_recharge(data.get('uid'), data.get('cera')))
-        elif path == '/api/mail/send':
-            # 邮件发送
-            self.json_response({
-                'status': 'success',
-                'message': f"邮件已发送给 {data.get('to', '')}"
-            })
-        else:
-            self.json_response({'error': 'not found'}, 404)
+        try:
+            if path == '/api/gm/notice/save':
+                self.json_response(gm_save_notice(data.get('content', '')))
+            elif path == '/api/gm/send-item':
+                self.json_response(gm_send_item(data.get('charac_no'), data.get('item_id'), data.get('count', 1), data.get('upgrade', 0)))
+            elif path == '/api/gm/set-level':
+                self.json_response(gm_set_level(data.get('charac_no'), data.get('level')))
+            elif path == '/api/gm/add-gold':
+                self.json_response(gm_add_gold(data.get('charac_no'), data.get('gold')))
+            elif path == '/api/gm/kick':
+                self.json_response(gm_kick_user(data.get('uid')))
+            elif path == '/api/gm/ban':
+                self.json_response(gm_ban_user(data.get('uid'), data.get('reason', '违规操作'), data.get('duration', 0)))
+            elif path == '/api/gm/unban':
+                self.json_response(gm_unban_user(data.get('uid')))
+            elif path == '/api/mail/send':
+                self.json_response({'status': 'success', 'message': f"邮件已发送给 {data.get('to', '')}"})
+            else:
+                self.json_response({'error': 'not found'}, 404)
+        except Exception as e:
+            self.json_response({'error': str(e)}, 500)
+    
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
     
     def serve_dashboard(self):
         """提供dashboard页面"""
@@ -542,14 +557,13 @@ class DNFHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode('utf-8'))
     
     def log_message(self, format, *args):
-        """禁用日志"""
         pass
 
 # ==================== 启动 ====================
 
 def run(port=18885):
     server = HTTPServer(('0.0.0.0', port), DNFHandler)
-    print(f"[*] DNF Admin v4.0 启动在端口 {port}")
+    print(f"[*] DNF Admin v4.1 启动在端口 {port}")
     print(f"[*] 访问地址: http://localhost:{port}")
     server.serve_forever()
 

@@ -753,7 +753,19 @@
                         </div>
                         <div class="card-body">
                             <div class="search-box">
-                                <select class="form-input" id="skill-job" style="width: 200px;"></select>
+                                <select class="form-input" id="skill-base-job" style="width: 150px;" onchange="updateSkillJobSelect()">
+                                    <option value="">选择基础职业</option>
+                                    <option value="0">鬼剑士</option>
+                                    <option value="1">格斗家</option>
+                                    <option value="2">神枪手</option>
+                                    <option value="3">魔法师</option>
+                                    <option value="4">圣职者</option>
+                                    <option value="5">暗夜使者</option>
+                                    <option value="6">魔枪士</option>
+                                    <option value="7">枪剑士</option>
+                                    <option value="8">弓箭手</option>
+                                </select>
+                                <select class="form-input" id="skill-job" style="width: 150px;"></select>
                                 <button class="btn btn-primary" onclick="loadSkills()">查询</button>
                             </div>
                             
@@ -971,6 +983,21 @@
                         <tbody id="char-items-body"></tbody>
                     </table>
                 </div>
+                
+                <div style="margin-top: 20px;">
+                    <h3 style="margin-bottom: 12px;">角色技能 (<span id="char-skill-count">0</span>个)</h3>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>技能ID</th>
+                                <th>技能名称</th>
+                                <th>等级</th>
+                                <th>最大等级</th>
+                            </tr>
+                        </thead>
+                        <tbody id="char-skills-body"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -993,22 +1020,53 @@
             return await response.json();
         }
         
+        // 职业树
+        const JOB_TREE = {
+            0: [100, 101, 102, 103],
+            1: [200, 201, 202, 203],
+            2: [300, 301, 302, 303],
+            3: [400, 401, 402, 403],
+            4: [500, 501, 502, 503],
+            5: [600, 601, 602, 603],
+            6: [700, 701, 702, 703],
+            7: [800, 801, 802, 803],
+            8: [900, 901],
+        };
+        
+        // 更新技能职业选择框
+        function updateSkillJobSelect() {
+            const baseJob = document.getElementById('skill-base-job').value;
+            const skillJobSelect = document.getElementById('skill-job');
+            skillJobSelect.innerHTML = '';
+            
+            if (baseJob === '') {
+                skillJobSelect.innerHTML = '<option value="">选择转职</option>';
+                return;
+            }
+            
+            const jobs = JOB_TREE[baseJob] || [];
+            for (const jobId of jobs) {
+                const name = state.jobs[jobId] || `职业${jobId}`;
+                skillJobSelect.innerHTML += `<option value="${jobId}">${name}</option>`;
+            }
+        }
+        
         // 初始化
         async function init() {
             // 加载职业列表
             const jobsData = await api('jobs');
             state.jobs = jobsData.jobs || {};
             
-            // 填充职业选择框
+            // 填充角色职业选择框
             const charJobSelect = document.getElementById('char-job');
-            const skillJobSelect = document.getElementById('skill-job');
-            
             for (const [id, name] of Object.entries(state.jobs)) {
                 if (parseInt(id) < 100) {
                     charJobSelect.innerHTML += `<option value="${id}">${name}</option>`;
-                    skillJobSelect.innerHTML += `<option value="${id}">${name}</option>`;
                 }
             }
+            
+            // 初始化技能职业选择框
+            updateSkillJobSelect();
             
             // 加载统计数据
             loadStats();
@@ -1149,6 +1207,22 @@
                         <td>${item.slot_name || item.slot}</td>
                         <td>${item.item_name || '-'}</td>
                         <td>${item.it_id}</td>
+                    </tr>
+                `;
+            }
+            
+            // 角色技能
+            document.getElementById('char-skill-count').textContent = char.skills_count || 0;
+            const skillsBody = document.getElementById('char-skills-body');
+            skillsBody.innerHTML = '';
+            
+            for (const skill of (char.skills || [])) {
+                skillsBody.innerHTML += `
+                    <tr>
+                        <td>${skill.skill_index}</td>
+                        <td>${skill.name || '-'}</td>
+                        <td>${skill.level || 0}</td>
+                        <td>${skill.max_level || 0}</td>
                     </tr>
                 `;
             }
