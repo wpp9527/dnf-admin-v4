@@ -635,6 +635,14 @@
                 </div>
                 <div class="nav-group">
                     <div class="nav-title">系统管理</div>
+                    <div class="nav-item" data-page="server">
+                        <span class="icon">🖥️</span>
+                        <span>服务端监控</span>
+                    </div>
+                    <div class="nav-item" data-page="events">
+                        <span class="icon">🎉</span>
+                        <span>活动管理</span>
+                    </div>
                     <div class="nav-item" data-page="pvf">
                         <span class="icon">📄</span>
                         <span>PVF管理</span>
@@ -1060,6 +1068,102 @@
                     </div>
                 </div>
                 
+                <!-- 服务端监控 -->
+                <div class="panel" id="panel-server">
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-label">服务端状态</div>
+                            <div id="server-status">
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">Docker</div>
+                                    <div class="prop-value" id="server-docker">-</div>
+                                </div>
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">MySQL</div>
+                                    <div class="prop-value" id="server-mysql">-</div>
+                                </div>
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">游戏服务</div>
+                                    <div class="prop-value" id="server-game">-</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-ghost" onclick="loadServerStatus()" style="margin-top: 12px; width: 100%;">刷新状态</button>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-label">系统资源</div>
+                            <div id="server-resources">
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">磁盘使用</div>
+                                    <div class="prop-value" id="server-disk">-</div>
+                                </div>
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">内存使用</div>
+                                    <div class="prop-value" id="server-memory">-</div>
+                                </div>
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">网络延迟</div>
+                                    <div class="prop-value" id="server-network">-</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-label">启动控制</div>
+                            <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+                                <button class="btn btn-primary" onclick="startServer('all')" style="width: 100%;">启动全部服务</button>
+                                <button class="btn btn-ghost" onclick="startServer('game')" style="width: 100%;">启动游戏服务</button>
+                                <button class="btn btn-ghost" onclick="startServer('channel')" style="width: 100%;">启动频道服务</button>
+                                <button class="btn btn-danger" onclick="stopServer('all')" style="width: 100%;">停止全部服务</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card" style="margin-top: 16px;">
+                        <div class="card-header">
+                            <div class="card-title">问题诊断</div>
+                        </div>
+                        <div class="card-body">
+                            <button class="btn btn-ghost" onclick="loadServerIssues()" style="margin-bottom: 12px;">检查问题</button>
+                            <div id="server-issues"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="card" style="margin-top: 16px;">
+                        <div class="card-header">
+                            <div class="card-title">服务端配置</div>
+                        </div>
+                        <div class="card-body">
+                            <button class="btn btn-ghost" onclick="loadServerConfig()" style="margin-bottom: 12px;">加载配置</button>
+                            <div id="server-config"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 活动管理 -->
+                <div class="panel" id="panel-events">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">活动列表</div>
+                        </div>
+                        <div class="card-body">
+                            <button class="btn btn-ghost" onclick="loadEvents()" style="margin-bottom: 12px;">加载活动</button>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>活动名称</th>
+                                        <th>开始时间</th>
+                                        <th>结束时间</th>
+                                        <th>状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="events-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                
                 <!-- PVF 管理 -->
                 <div class="panel" id="panel-pvf">
                     <div class="stats">
@@ -1376,6 +1480,8 @@
                 items: '物品查询',
                 skills: '技能查询',
                 monsters: '怪物查询',
+                server: '服务端监控',
+                events: '活动管理',
                 pvf: 'PVF管理',
                 gm: 'GM工具',
                 mail: '邮件系统',
@@ -1391,6 +1497,8 @@
             if (page === 'monsters') loadMonsters();
             if (page === 'notice') loadNotice();
             if (page === 'pvf') loadPvfStatus();
+            if (page === 'server') loadServerStatus();
+            if (page === 'events') loadEvents();
         }
         
         // 加载角色列表
@@ -1827,6 +1935,178 @@
                 `;
             } else {
                 resultDiv.innerHTML = '<div style="color: var(--muted);">没有数据</div>';
+            }
+        }
+        
+        // 服务端监控功能
+        async function loadServerStatus() {
+            const data = await api('server/status');
+            
+            // Docker 状态
+            const dockerEl = document.getElementById('server-docker');
+            dockerEl.textContent = data.docker?.status || '-';
+            dockerEl.style.color = data.docker?.status === 'running' ? 'var(--ok)' : 'var(--danger)';
+            
+            // MySQL 状态
+            const mysqlEl = document.getElementById('server-mysql');
+            mysqlEl.textContent = data.mysql?.status === 'running' ? `运行中 (${data.mysql.connections} 连接)` : '-';
+            mysqlEl.style.color = data.mysql?.status === 'running' ? 'var(--ok)' : 'var(--danger)';
+            
+            // 游戏服务状态
+            const gameEl = document.getElementById('server-game');
+            gameEl.textContent = data.game_server?.status || '-';
+            gameEl.style.color = data.game_server?.status === 'running' ? 'var(--ok)' : 'var(--danger)';
+            
+            // 系统资源
+            document.getElementById('server-disk').textContent = data.disk?.usage || '-';
+            document.getElementById('server-memory').textContent = data.memory?.usage || '-';
+            document.getElementById('server-network').textContent = data.network?.latency ? `${data.network.latency}ms` : '-';
+            
+            // 显示问题
+            if (data.issues && data.issues.length > 0) {
+                const issuesHtml = data.issues.map(issue => `
+                    <div style="padding: 8px 12px; background: rgba(255,199,0,.1); border-radius: 8px; margin-bottom: 8px; color: var(--warn);">
+                        ⚠️ ${issue}
+                    </div>
+                `).join('');
+                document.getElementById('server-issues').innerHTML = issuesHtml;
+            }
+        }
+        
+        async function loadServerIssues() {
+            const data = await api('server/issues');
+            const issuesDiv = document.getElementById('server-issues');
+            
+            if (data.issues && data.issues.length > 0) {
+                issuesDiv.innerHTML = data.issues.map(issue => {
+                    const color = issue.level === 'error' ? 'var(--danger)' : issue.level === 'warning' ? 'var(--warn)' : 'var(--info)';
+                    const icon = issue.level === 'error' ? '❌' : issue.level === 'warning' ? '⚠️' : 'ℹ️';
+                    
+                    let actionBtn = '';
+                    if (issue.type === 'account_ban') {
+                        const uid = issue.message.match(/账号 (\d+)/)?.[1];
+                        if (uid) {
+                            actionBtn = `<button class="btn btn-ghost" onclick="unbanAccount(${uid})" style="margin-top: 8px;">解封账号</button>`;
+                        }
+                    }
+                    
+                    return `
+                        <div style="padding: 12px; background: ${color}10; border-radius: 8px; margin-bottom: 8px; border-left: 3px solid ${color};">
+                            <div style="font-weight: 600; color: ${color};">${icon} ${issue.type}</div>
+                            <div style="margin-top: 4px;">${issue.message}</div>
+                            <div style="margin-top: 4px; font-size: 12px; color: var(--muted);">解决方案: ${issue.solution}</div>
+                            ${actionBtn}
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                issuesDiv.innerHTML = '<div style="color: var(--ok);">✅ 没有发现问题</div>';
+            }
+        }
+        
+        async function loadServerConfig() {
+            const data = await api('server/config');
+            const configDiv = document.getElementById('server-config');
+            
+            let html = '<div style="font-family: monospace; font-size: 13px;">';
+            
+            // 服务器信息
+            html += `<div style="margin-bottom: 12px;">
+                <div style="font-weight: 600; margin-bottom: 4px;">服务器</div>
+                <div style="padding-left: 12px; color: var(--muted);">
+                    IP: ${data.server?.ip || '-'}<br>
+                    Docker: ${data.docker?.image || '-'}
+                </div>
+            </div>`;
+            
+            // 端口状态
+            if (data.server?.ports) {
+                html += `<div style="margin-bottom: 12px;">
+                    <div style="font-weight: 600; margin-bottom: 4px;">端口状态</div>
+                    <div style="padding-left: 12px; color: var(--muted);">
+                        ${Object.entries(data.server.ports).map(([port, info]) => `
+                            ${port} (${info.name}): <span style="color: ${info.status === 'running' ? 'var(--ok)' : 'var(--danger)'}">${info.status}</span>
+                        `).join('<br>')}
+                    </div>
+                </div>`;
+            }
+            
+            // 数据库信息
+            html += `<div style="margin-bottom: 12px;">
+                <div style="font-weight: 600; margin-bottom: 4px;">数据库</div>
+                <div style="padding-left: 12px; color: var(--muted);">
+                    Host: ${data.database?.host || '-'}<br>
+                    Port: ${data.database?.port || '-'}
+                </div>
+            </div>`;
+            
+            html += '</div>';
+            configDiv.innerHTML = html;
+        }
+        
+        async function startServer(service) {
+            if (!confirm(`确定要启动 ${service === 'all' ? '全部' : service} 服务吗？`)) return;
+            
+            const data = await api(`server/start?service=${service}`);
+            
+            if (data.success) {
+                alert('启动成功！');
+                setTimeout(loadServerStatus, 3000);
+            } else {
+                alert('启动失败: ' + (data.error || '未知错误'));
+            }
+        }
+        
+        async function stopServer(service) {
+            if (!confirm(`确定要停止 ${service === 'all' ? '全部' : service} 服务吗？`)) return;
+            
+            const data = await api(`server/stop?service=${service}`);
+            
+            if (data.success) {
+                alert('停止成功！');
+                setTimeout(loadServerStatus, 3000);
+            } else {
+                alert('停止失败: ' + (data.error || '未知错误'));
+            }
+        }
+        
+        // 解封账号
+        async function unbanAccount(uid) {
+            if (!confirm(`确定要解封账号 ${uid} 吗？`)) return;
+            
+            const data = await api('server/unban', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid })
+            });
+            
+            if (data.success) {
+                alert('解封成功！');
+                loadServerIssues();
+            } else {
+                alert('解封失败: ' + (data.error || '未知错误'));
+            }
+        }
+        
+        // 活动管理功能
+        async function loadEvents() {
+            const data = await api('events');
+            const tbody = document.getElementById('events-body');
+            tbody.innerHTML = '';
+            
+            for (const event of (data.events || [])) {
+                const status = event.end_time && new Date(event.end_time) < new Date() ? '已结束' : '进行中';
+                const statusColor = status === '进行中' ? 'var(--ok)' : 'var(--muted)';
+                
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${event.idx || '-'}</td>
+                        <td>${event.event_name || event.name || '-'}</td>
+                        <td>${event.start_time || '-'}</td>
+                        <td>${event.end_time || '-'}</td>
+                        <td><span style="color: ${statusColor}">${status}</span></td>
+                    </tr>
+                `;
             }
         }
         

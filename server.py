@@ -850,6 +850,238 @@ def get_stats():
         'total_monsters': total_monsters,
     }
 
+def get_server_status():
+    """获取服务端运行状态"""
+    import subprocess
+    
+    status = {
+        'docker': {'status': 'unknown', 'containers': []},
+        'mysql': {'status': 'unknown', 'connections': 0},
+        'game_server': {'status': 'unknown', 'port': 7600},
+        'network': {'status': 'unknown', 'latency': 0},
+        'disk': {'status': 'unknown', 'usage': '0%'},
+        'memory': {'status': 'unknown', 'usage': '0%'},
+        'issues': []
+    }
+    
+    try:
+        # 检查 Docker 容器状态
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker ps --format \"{{.Names}}\t{{.Status}}\"'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            containers = []
+            for line in result.stdout.split('\n'):
+                if line.strip():
+                    parts = line.split('\t')
+                    if len(parts) >= 2:
+                        containers.append({'name': parts[0], 'status': parts[1]})
+            status['docker']['containers'] = containers
+            status['docker']['status'] = 'running' if containers else 'stopped'
+        
+        # 检查 MySQL 连接
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker exec dnf-llnut_dnf-1_1 mysql -u root -p88888888 -e \"SELECT COUNT(*) as cnt FROM information_schema.processlist;\"'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if line.strip().isdigit():
+                    status['mysql']['connections'] = int(line.strip())
+                    status['mysql']['status'] = 'running'
+        
+        # 检查游戏端口
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'netstat -tlnp 2>/dev/null | grep 7600'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        if '7600' in result.stdout:
+            status['game_server']['status'] = 'running'
+        else:
+            status['game_server']['status'] = 'stopped'
+            status['issues'].append('游戏服务端口 7600 未监听')
+        
+        # 检查磁盘使用
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'df -h / | tail -1 | awk \"{print $5}\"'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        if result.stdout.strip():
+            status['disk']['usage'] = result.stdout.strip()
+            usage = int(result.stdout.strip().replace('%', ''))
+            if usage > 90:
+                status['disk']['status'] = 'warning'
+                status['issues'].append(f'磁盘使用率过高: {status["disk"]["usage"]}')
+            else:
+                status['disk']['status'] = 'normal'
+        
+        # 检查内存使用
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'free -m | awk \"/Mem/{printf \"%s\", $3/$2*100}\"'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        if result.stdout.strip():
+            status['memory']['usage'] = f"{float(result.stdout.strip()):.1f}%"
+            usage = float(result.stdout.strip())
+            if usage > 90:
+                status['memory']['status'] = 'warning'
+                status['issues'].append(f'内存使用率过高: {status["memory"]["usage"]}')
+            else:
+                status['memory']['status'] = 'normal'
+        
+        # 检查网络连接
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'ping -c 1 -W 2 127.0.0.1 2>/dev/null | grep time='"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        if 'time=' in result.stdout:
+            import re
+            match = re.search(r'time=(\d+\.?\d*)', result.stdout)
+            if match:
+                status['network']['latency'] = float(match.group(1))
+                status['network']['status'] = 'normal'
+        
+    except Exception as e:
+        status['issues'].append(f'状态检查出错: {str(e)}')
+    
+    return status
+
+def get_server_issues():
+    """获取服务端问题诊断"""
+    import subprocess
+    
+    issues = []
+    
+    try:
+        # 检查账号封禁状态
+        banned = query_db("SELECT m_id, punish_type, end_time FROM d_taiwan.member_punish_info WHERE end_time > NOW()", db='d_taiwan')
+        for ban in banned:
+            issues.append({
+                'level': 'warning',
+                'type': 'account_ban',
+                'message': f'账号 {ban["m_id"]} 被封禁至 {ban["end_time"]}',
+                'solution': 'DELETE FROM d_taiwan.member_punish_info WHERE m_id=?'
+            })
+        
+        # 检查 billing 字段
+        billing_users = query_db("SELECT UID, accountname FROM d_taiwan.accounts WHERE billing != 0", db='d_taiwan')
+        for user in billing_users:
+            issues.append({
+                'level': 'warning',
+                'type': 'billing',
+                'message': f'账号 {user["accountname"]} 的 billing 字段不为 0',
+                'solution': 'UPDATE d_taiwan.accounts SET billing=0 WHERE UID=?'
+            })
+        
+        # 检查角色数据完整性
+        orphan_chars = query_db("SELECT COUNT(*) as cnt FROM charac_info WHERE m_id NOT IN (SELECT UID FROM d_taiwan.accounts)")[0]['cnt']
+        if orphan_chars > 0:
+            issues.append({
+                'level': 'info',
+                'type': 'data_integrity',
+                'message': f'存在 {orphan_chars} 个孤儿角色（账号不存在）',
+                'solution': '检查 charac_info 表的 m_id 字段'
+            })
+        
+        # 检查最近登录
+        recent_logins = query_db("SELECT COUNT(*) as cnt FROM taiwan_cain_log.login_log WHERE login_time > DATE_SUB(NOW(), INTERVAL 1 HOUR)", db='taiwan_cain_log')
+        if recent_logins and recent_logins[0]['cnt'] == 0:
+            issues.append({
+                'level': 'info',
+                'type': 'activity',
+                'message': '过去1小时没有登录记录',
+                'solution': '检查客户端连接配置'
+            })
+        
+    except Exception as e:
+        issues.append({
+            'level': 'error',
+            'type': 'system',
+            'message': f'问题诊断出错: {str(e)}',
+            'solution': '检查数据库连接'
+        })
+    
+    return issues
+
+def get_events():
+    """获取活动列表"""
+    try:
+        events = query_db("SELECT * FROM d_taiwan.dnf_event_info ORDER BY idx DESC LIMIT 50", db='d_taiwan')
+        for event in events:
+            for key, value in event.items():
+                if isinstance(value, bytes):
+                    event[key] = decode_bytes(value)
+                elif hasattr(value, 'strftime'):
+                    event[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+        return {'events': events}
+    except Exception as e:
+        print(f"[EVENT ERROR] {e}")
+        return {'events': [], 'error': str(e)}
+
+def get_server_config():
+    """获取服务端配置"""
+    import subprocess
+    
+    config = {
+        'server': {'ip': '192.168.1.204', 'ports': {}},
+        'docker': {'image': 'dnf-llnut_dnf-1_1'},
+        'database': {'host': '172.18.0.2', 'port': 3306}
+    }
+    
+    try:
+        # 检查端口
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'netstat -tlnp 2>/dev/null | grep -E \"7600|7000|7100|7200\"'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        
+        ports = {'7600': '游戏服务', '7000': '频道1', '7100': '频道2', '7200': '频道3'}
+        for port, name in ports.items():
+            if port in result.stdout:
+                config['server']['ports'][port] = {'name': name, 'status': 'running'}
+            else:
+                config['server']['ports'][port] = {'name': name, 'status': 'stopped'}
+        
+    except Exception as e:
+        config['error'] = str(e)
+    
+    return config
+
+def start_server(service='game'):
+    """启动服务端"""
+    import subprocess
+    
+    try:
+        if service == 'game':
+            cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker exec dnf-llnut_dnf-1_1 /opt/dnf/df_game_r start'"
+        elif service == 'channel':
+            cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker exec dnf-llnut_dnf-1_1 /opt/dnf/df_channel_r start'"
+        elif service == 'all':
+            cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker restart dnf-llnut_dnf-1_1'"
+        else:
+            return {'error': f'未知服务: {service}'}
+        
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        
+        return {
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr if result.returncode != 0 else None
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+def stop_server(service='game'):
+    """停止服务端"""
+    import subprocess
+    
+    try:
+        if service == 'game':
+            cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker exec dnf-llnut_dnf-1_1 /opt/dnf/df_game_r stop'"
+        elif service == 'channel':
+            cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker exec dnf-llnut_dnf-1_1 /opt/dnf/df_channel_r stop'"
+        elif service == 'all':
+            cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'docker stop dnf-llnut_dnf-1_1'"
+        else:
+            return {'error': f'未知服务: {service}'}
+        
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        
+        return {
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr if result.returncode != 0 else None
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
 # ==================== HTTP Handler ====================
 
 import time
@@ -946,6 +1178,20 @@ class DNFHandler(BaseHTTPRequestHandler):
                 file_path = params.get('path', [''])[0]
                 file_type = params.get('type', ['gold'])[0]
                 self.json_response(load_pvf_file(file_path, file_type))
+            elif path == '/api/server/status':
+                self.json_response(get_server_status())
+            elif path == '/api/server/issues':
+                self.json_response({'issues': get_server_issues()})
+            elif path == '/api/server/config':
+                self.json_response(get_server_config())
+            elif path == '/api/events':
+                self.json_response(get_events())
+            elif path == '/api/server/start':
+                service = params.get('service', ['game'])[0]
+                self.json_response(start_server(service))
+            elif path == '/api/server/stop':
+                service = params.get('service', ['game'])[0]
+                self.json_response(stop_server(service))
             else:
                 self.json_response({'error': 'not found'}, 404)
         except Exception as e:
@@ -979,6 +1225,21 @@ class DNFHandler(BaseHTTPRequestHandler):
                 self.json_response(upload_pvf_file(data))
             elif path == '/api/pvf/import':
                 self.json_response(import_pvf_to_db(data.get('items', [])))
+            elif path == '/api/server/unban':
+                uid = data.get('uid')
+                if uid:
+                    try:
+                        conn = pymysql.connect(**DB_CONFIG, database='d_taiwan')
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM member_punish_info WHERE m_id = %s", (uid,))
+                        cursor.execute("UPDATE accounts SET billing = 0 WHERE UID = %s", (uid,))
+                        conn.commit()
+                        conn.close()
+                        self.json_response({'success': True, 'message': f'已解封账号 {uid}'})
+                    except Exception as e:
+                        self.json_response({'error': str(e)}, 500)
+                else:
+                    self.json_response({'error': '请提供 uid'}, 400)
             else:
                 self.json_response({'error': 'not found'}, 404)
         except Exception as e:
