@@ -167,48 +167,35 @@ def get_item_name(item_id, slot=0):
         if item['id'] == item_id:
             return item['name']
     
-    # 从数据库查询（dnf_item_info 在 taiwan_cain_web 数据库）
-    sql = "SELECT it_name, master_type, sub_type FROM taiwan_cain_web.dnf_item_info WHERE it_no = %s"
-    result = query_db(sql, (item_id,), 'taiwan_cain_web')
-    if result:
-        name = decode_bytes(result[0].get('it_name'))
-        if name and name.strip() and not name.startswith('b\''):
-            return name
+    # 从数据库查询（使用 latin1 连接避免双重编码）
+    try:
+        conn = pymysql.connect(**DB_CONFIG, database='taiwan_cain_web')
+        cursor = conn.cursor()
+        cursor.execute("SELECT it_name FROM dnf_item_info WHERE it_no = %s", (item_id,))
+        row = cursor.fetchone()
+        conn.close()
         
-        # 名称为空时，用分类生成名称
-        master_type = result[0].get('master_type', 0)
-        sub_type = result[0].get('sub_type', 0)
-        
-        # 物品分类名称
-        MASTER_TYPES = {
-            0: '消耗品', 1: '材料', 2: '任务物品', 3: '宠物',
-            4: '时装', 5: '宝珠', 6: '副职业材料',
-            100: '武器', 101: '防具', 102: '饰品', 103: '特殊装备',
-        }
-        
-        # 子分类名称
-        SUB_TYPES = {
-            1010: '上衣', 1011: '头肩', 1012: '下装', 1013: '鞋', 1014: '腰带',
-            1020: '项链', 1021: '手镯', 1022: '戒指',
-            1030: '辅助装备', 1031: '魔法石', 1032: '耳环',
-            1040: '称号', 1050: '宠物', 1060: '光环', 1070: '皮肤',
-        }
-        
-        category = MASTER_TYPES.get(master_type, f'T{master_type}')
-        sub_name = SUB_TYPES.get(sub_type, f'S{sub_type}')
-        
-        return f'{category}-{sub_name}'
+        if row and row[0]:
+            name = row[0]
+            if isinstance(name, bytes):
+                # 尝试多种编码
+                for enc in ['utf-8', 'big5', 'cp950', 'gbk']:
+                    try:
+                        name = name.decode(enc)
+                        break
+                    except:
+                        continue
+            if name and name.strip():
+                return name
+    except Exception as e:
+        print(f"[ITEM NAME ERROR] {e}")
     
     # 数据库无记录时，用槽位名+ID
     SLOT_NAMES = {
-        0: '武器', 1: '上衣', 2: '头肩', 3: '下装', 4: '鞋',
-        5: '腰带', 6: '项链', 7: '手镯', 8: '戒指', 9: '辅助装备',
-        10: '魔法石', 11: '耳环', 12: '称号', 13: '宠物', 14: '光环',
-        15: '皮肤', 16: '武器装扮', 17: '上衣装扮', 18: '头肩装扮',
-        19: '下装扮', 20: '鞋装扮', 21: '腰带装扮', 22: '项链装扮',
-        23: '手镯装扮', 24: '戒指装扮', 25: '辅助装备装扮', 26: '魔法石装扮',
-        27: '耳环装扮', 28: '称号装扮', 29: '宠物装扮', 30: '光环装扮',
-        31: '皮肤装扮', 100: '消耗品', 101: '材料', 102: '任务物品',
+        0: '武器', 1: '上衣', 2: '下装', 3: '头肩', 4: '腰带',
+        5: '鞋子', 6: '项链', 7: '手镯', 8: '戒指', 9: '辅助装备',
+        10: '魔法石', 11: '耳环', 12: '宠物', 13: '称号', 14: '光环',
+        15: '皮肤', 100: '消耗品', 101: '材料', 102: '任务物品',
     }
     slot_name = SLOT_NAMES.get(slot, '物品')
     return f"{slot_name}-{item_id}"
@@ -273,27 +260,48 @@ def load_character_detail(char_id):
         if char.get(field) and hasattr(char[field], 'strftime'):
             char[field] = char[field].strftime('%Y-%m-%d %H:%M:%S')
     
-    # 使用 charac_no 查询背包物品
+    # 使用 inventory 表的 equipslot blob 读取装备
     charac_no = char.get('charac_no')
-    items_sql = "SELECT * FROM taiwan_cain_2nd.user_items WHERE charac_no = %s ORDER BY slot LIMIT 100"
-    items = query_db(items_sql, (charac_no,), 'taiwan_cain_2nd')
+    import zlib
+    import struct
     
     SLOT_NAMES = {
-        0: '武器', 1: '上衣', 2: '头肩', 3: '下装', 4: '鞋',
-        5: '腰带', 6: '项链', 7: '手镯', 8: '戒指', 9: '辅助装备',
-        10: '魔法石', 11: '耳环', 12: '称号', 13: '宠物', 14: '光环',
-        15: '皮肤', 16: '武器装扮', 17: '上衣装扮', 18: '头肩装扮',
-        19: '下装扮', 20: '鞋装扮', 21: '腰带装扮', 22: '项链装扮',
-        23: '手镯装扮', 24: '戒指装扮', 25: '辅助装备装扮', 26: '魔法石装扮',
-        27: '耳环装扮', 28: '称号装扮', 29: '宠物装扮', 30: '光环装扮',
-        31: '皮肤装扮', 100: '快捷栏1', 101: '快捷栏2', 102: '快捷栏3',
-        103: '快捷栏4', 104: '快捷栏5'
+        0: '武器', 1: '上衣', 2: '下装', 3: '头肩', 4: '腰带',
+        5: '鞋子', 6: '项链', 7: '手镯', 8: '戒指', 9: '辅助装备',
+        10: '魔法石', 11: '耳环', 12: '宠物', 13: '称号', 14: '光环',
+        15: '皮肤', 100: '消耗品', 101: '材料', 102: '任务物品'
     }
     
-    for item in items:
-        slot = item.get('slot', 0)
-        item['slot_name'] = SLOT_NAMES.get(slot, f"槽位{slot}")
-        item['item_name'] = get_item_name(item.get('it_id'), slot)
+    items = []
+    
+    # 读取 equipslot blob
+    inv_sql = "SELECT equipslot, inventory FROM taiwan_cain_2nd.inventory WHERE charac_no = %s"
+    inv_data = query_db(inv_sql, (charac_no,), 'taiwan_cain_2nd')
+    
+    if inv_data and inv_data[0].get('equipslot'):
+        equipslot_blob = inv_data[0]['equipslot']
+        try:
+            # 解压 equipslot (前4字节是长度, 后面是zlib压缩数据)
+            decompressed = zlib.decompress(equipslot_blob[4:])
+            
+            # 每个槽位 61 字节
+            slot_size = 61
+            for i in range(0, len(decompressed), slot_size):
+                slot_data = decompressed[i:i+slot_size]
+                if len(slot_data) >= 4:
+                    item_no = struct.unpack('<H', slot_data[2:4])[0]
+                    if item_no > 0:
+                        slot_idx = i // slot_size
+                        slot_name = SLOT_NAMES.get(slot_idx, f'槽位{slot_idx}')
+                        item_name = get_item_name(item_no, slot_idx)
+                        items.append({
+                            'slot': slot_idx,
+                            'slot_name': slot_name,
+                            'it_id': item_no,
+                            'item_name': item_name,
+                        })
+        except Exception as e:
+            print(f"[EQUIP ERROR] {e}")
     
     char['inventory'] = items
     char['inventory_count'] = len(items)
