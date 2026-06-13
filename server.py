@@ -200,6 +200,223 @@ def get_item_name(item_id, slot=0):
     slot_name = SLOT_NAMES.get(slot, '物品')
     return f"{slot_name}-{item_id}"
 
+# ==================== PVF 文件管理 ====================
+
+def list_pvf_files():
+    """列出服务端 PVF 文件"""
+    try:
+        import subprocess
+        # 列出服务端 PVF 相关文件
+        cmd = "sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'find /opt/dnf-llnut/data -name \"*.txt\" -o -name \"*.pvf\" | head -20'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        
+        files = []
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                if line:
+                    # 判断文件类型
+                    if line.endswith('.pvf'):
+                        file_type = 'pvf'
+                    elif 'item' in line.lower() or 'equip' in line.lower():
+                        file_type = 'item'
+                    elif 'monster' in line.lower() or 'mob' in line.lower():
+                        file_type = 'monster'
+                    elif 'skill' in line.lower():
+                        file_type = 'skill'
+                    else:
+                        file_type = 'other'
+                    
+                    files.append({
+                        'path': line,
+                        'name': line.split('/')[-1],
+                        'type': file_type
+                    })
+        
+        return {'files': files}
+    except Exception as e:
+        print(f"[PVF LIST ERROR] {e}")
+        return {'files': [], 'error': str(e)}
+
+def load_pvf_file(file_path, file_type='gold'):
+    """加载指定的 PVF 文件"""
+    global _pvf_items_cache, _pvf_cache_time
+    
+    if not file_path:
+        return {'error': '请指定文件路径'}
+    
+    try:
+        import subprocess
+        # 通过SSH读取文件
+        cmd = f"sshpass -p 'wp930803' ssh -o StrictHostKeyChecking=no root@192.168.1.204 'cat {file_path}'"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode != 0:
+            return {'error': f'读取文件失败: {result.stderr}'}
+        
+        items = []
+        content = result.stdout
+        
+        # 解析 gold.txt 格式
+        if file_type == 'gold':
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                match = re.match(r'\[(\d+)\s*\]\s*name:(.+)', line)
+                if match:
+                    item_id = int(match.group(1))
+                    item_name = match.group(2).strip()
+                    items.append({
+                        'id': item_id,
+                        'name': item_name,
+                        'category': '物品'
+                    })
+        # 解析 Script.pvf 二进制格式
+        elif file_type == 'pvf':
+            # Script.pvf 是二进制加密文件，需要特殊解析
+            return {'error': 'Script.pvf 是二进制加密文件，暂不支持解析'}
+        # 解析其他文本格式
+        else:
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                # 尝试解析各种格式
+                parts = line.split('\t')
+                if len(parts) >= 2:
+                    items.append({
+                        'id': parts[0],
+                        'name': parts[1],
+                        'category': file_type
+                    })
+        
+        # 更新缓存
+        _pvf_items_cache = items
+        _pvf_cache_time = time.time()
+        
+        return {
+            'success': True,
+            'count': len(items),
+            'file': file_path,
+            'type': file_type
+        }
+    except Exception as e:
+        print(f"[PVF LOAD ERROR] {e}")
+        return {'error': str(e)}
+
+def upload_pvf_file(data):
+    """上传本地 PVF 文件"""
+    global _pvf_items_cache, _pvf_cache_time
+    
+    content = data.get('content', '')
+    file_type = data.get('type', 'gold')
+    file_name = data.get('name', 'uploaded.txt')
+    
+    if not content:
+        return {'error': '文件内容为空'}
+    
+    try:
+        items = []
+        
+        # 解析 gold.txt 格式
+        if file_type == 'gold':
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                match = re.match(r'\[(\d+)\s*\]\s*name:(.+)', line)
+                if match:
+                    item_id = int(match.group(1))
+                    item_name = match.group(2).strip()
+                    items.append({
+                        'id': item_id,
+                        'name': item_name,
+                        'category': '物品'
+                    })
+        # 解析 CSV/TSV 格式
+        elif file_type in ['csv', 'tsv']:
+            separator = ',' if file_type == 'csv' else '\t'
+            for line in content.split('\n'):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split(separator)
+                if len(parts) >= 2:
+                    items.append({
+                        'id': parts[0].strip(),
+                        'name': parts[1].strip(),
+                        'category': '物品'
+                    })
+        else:
+            return {'error': f'不支持的文件类型: {file_type}'}
+        
+        # 更新缓存
+        _pvf_items_cache = items
+        _pvf_cache_time = time.time()
+        
+        return {
+            'success': True,
+            'count': len(items),
+            'name': file_name,
+            'type': file_type
+        }
+    except Exception as e:
+        print(f"[PVF UPLOAD ERROR] {e}")
+        return {'error': str(e)}
+
+def import_pvf_to_db(items):
+    """导入 PVF 数据到数据库"""
+    if not items:
+        return {'error': '没有数据可导入'}
+    
+    try:
+        conn = pymysql.connect(**DB_CONFIG, database='taiwan_cain_web')
+        cursor = conn.cursor()
+        
+        imported = 0
+        updated = 0
+        errors = 0
+        
+        for item in items:
+            item_id = item.get('id')
+            item_name = item.get('name', '')
+            
+            if not item_id or not item_name:
+                errors += 1
+                continue
+            
+            try:
+                # 检查是否已存在
+                cursor.execute("SELECT it_no FROM dnf_item_info WHERE it_no = %s", (item_id,))
+                exists = cursor.fetchone()
+                
+                if exists:
+                    # 更新
+                    cursor.execute("UPDATE dnf_item_info SET it_name = %s WHERE it_no = %s", (item_name, item_id))
+                    updated += 1
+                else:
+                    # 插入
+                    cursor.execute("INSERT INTO dnf_item_info (it_no, it_name) VALUES (%s, %s)", (item_id, item_name))
+                    imported += 1
+            except Exception as e:
+                print(f"[IMPORT ERROR] item {item_id}: {e}")
+                errors += 1
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            'success': True,
+            'imported': imported,
+            'updated': updated,
+            'errors': errors,
+            'total': len(items)
+        }
+    except Exception as e:
+        print(f"[PVF IMPORT ERROR] {e}")
+        return {'error': str(e)}
+
 # ==================== 数据加载 ====================
 
 def load_characters(page=1, page_size=20, filters=None):
@@ -717,6 +934,18 @@ class DNFHandler(BaseHTTPRequestHandler):
                 self.json_response(gm_get_notice())
             elif path == '/api/jobs':
                 self.json_response({'jobs': JOBS, 'job_tree': JOB_TREE})
+            elif path == '/api/pvf/status':
+                self.json_response({
+                    'cached': len(_pvf_items_cache) if _pvf_items_cache else 0,
+                    'cache_time': _pvf_cache_time,
+                    'source': 'gold.txt'
+                })
+            elif path == '/api/pvf/files':
+                self.json_response(list_pvf_files())
+            elif path == '/api/pvf/load':
+                file_path = params.get('path', [''])[0]
+                file_type = params.get('type', ['gold'])[0]
+                self.json_response(load_pvf_file(file_path, file_type))
             else:
                 self.json_response({'error': 'not found'}, 404)
         except Exception as e:
@@ -746,6 +975,10 @@ class DNFHandler(BaseHTTPRequestHandler):
                 self.json_response(gm_unban_user(data.get('uid')))
             elif path == '/api/mail/send':
                 self.json_response({'status': 'success', 'message': f"邮件已发送给 {data.get('to', '')}"})
+            elif path == '/api/pvf/upload':
+                self.json_response(upload_pvf_file(data))
+            elif path == '/api/pvf/import':
+                self.json_response(import_pvf_to_db(data.get('items', [])))
             else:
                 self.json_response({'error': 'not found'}, 404)
         except Exception as e:

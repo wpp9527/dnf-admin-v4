@@ -635,6 +635,10 @@
                 </div>
                 <div class="nav-group">
                     <div class="nav-title">系统管理</div>
+                    <div class="nav-item" data-page="pvf">
+                        <span class="icon">📄</span>
+                        <span>PVF管理</span>
+                    </div>
                     <div class="nav-item" data-page="gm">
                         <span class="icon">🎮</span>
                         <span>GM工具</span>
@@ -1055,6 +1059,65 @@
                         </div>
                     </div>
                 </div>
+                
+                <!-- PVF 管理 -->
+                <div class="panel" id="panel-pvf">
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-label">当前 PVF 状态</div>
+                            <div id="pvf-status">
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">缓存物品数</div>
+                                    <div class="prop-value" id="pvf-cache-count">-</div>
+                                </div>
+                                <div class="prop-item" style="margin-top: 10px;">
+                                    <div class="prop-label">数据来源</div>
+                                    <div class="prop-value" id="pvf-source">-</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-ghost" onclick="loadPvfStatus()" style="margin-top: 12px; width: 100%;">刷新状态</button>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-label">服务端文件</div>
+                            <div id="pvf-files-list" style="max-height: 200px; overflow-y: auto; margin-top: 10px;">
+                                <div style="color: var(--muted);">点击"加载文件列表"获取</div>
+                            </div>
+                            <button class="btn btn-ghost" onclick="loadPvfFiles()" style="margin-top: 12px; width: 100%;">加载文件列表</button>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-label">上传本地文件</div>
+                            <div class="form-group" style="margin-top: 10px;">
+                                <label class="form-label">文件类型</label>
+                                <select class="form-input" id="pvf-upload-type">
+                                    <option value="gold">gold.txt (ID:Name格式)</option>
+                                    <option value="csv">CSV (逗号分隔)</option>
+                                    <option value="tsv">TSV (制表符分隔)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">文件内容</label>
+                                <textarea class="form-input" id="pvf-upload-content" rows="6" placeholder="粘贴文件内容..."></textarea>
+                            </div>
+                            <button class="btn btn-primary" onclick="uploadPvfFile()" style="width: 100%;">上传并解析</button>
+                        </div>
+                    </div>
+                    
+                    <div class="card" style="margin-top: 16px;">
+                        <div class="card-header">
+                            <div class="card-title">导入到数据库</div>
+                        </div>
+                        <div class="card-body">
+                            <p style="color: var(--muted); margin-bottom: 12px;">将当前缓存的 PVF 数据导入到 dnf_item_info 表，可以修复物品名称显示问题。</p>
+                            <div style="display: flex; gap: 12px;">
+                                <button class="btn btn-primary" onclick="importPvfToDb()">导入到数据库</button>
+                                <button class="btn btn-ghost" onclick="previewPvfData()">预览数据</button>
+                            </div>
+                            <div id="pvf-import-result" style="margin-top: 12px;"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1313,6 +1376,7 @@
                 items: '物品查询',
                 skills: '技能查询',
                 monsters: '怪物查询',
+                pvf: 'PVF管理',
                 gm: 'GM工具',
                 mail: '邮件系统',
                 notice: '公告管理'
@@ -1326,6 +1390,7 @@
             if (page === 'skills') loadSkills();
             if (page === 'monsters') loadMonsters();
             if (page === 'notice') loadNotice();
+            if (page === 'pvf') loadPvfStatus();
         }
         
         // 加载角色列表
@@ -1642,6 +1707,127 @@
             `;
             
             document.getElementById('monster-modal').classList.add('open');
+        }
+        
+        // PVF 管理功能
+        async function loadPvfStatus() {
+            const data = await api('pvf/status');
+            document.getElementById('pvf-cache-count').textContent = data.cached || 0;
+            document.getElementById('pvf-source').textContent = data.source || '-';
+        }
+        
+        async function loadPvfFiles() {
+            const data = await api('pvf/files');
+            const list = document.getElementById('pvf-files-list');
+            
+            if (data.files && data.files.length > 0) {
+                list.innerHTML = data.files.map(f => `
+                    <div style="padding: 8px; border-bottom: 1px solid var(--line); cursor: pointer;" 
+                         onclick="loadPvfFile('${f.path}', '${f.type}')">
+                        <div style="font-size: 13px;">${f.name}</div>
+                        <div style="font-size: 11px; color: var(--muted);">${f.path}</div>
+                    </div>
+                `).join('');
+            } else {
+                list.innerHTML = '<div style="color: var(--muted);">没有找到文件</div>';
+            }
+        }
+        
+        async function loadPvfFile(filePath, fileType) {
+            if (!confirm(`确定要加载文件 ${filePath} 吗？这会替换当前的 PVF 缓存。`)) return;
+            
+            const data = await api(`pvf/load?path=${encodeURIComponent(filePath)}&type=${fileType}`);
+            
+            if (data.success) {
+                alert(`加载成功！共 ${data.count} 个物品`);
+                loadPvfStatus();
+            } else {
+                alert('加载失败: ' + (data.error || '未知错误'));
+            }
+        }
+        
+        async function uploadPvfFile() {
+            const type = document.getElementById('pvf-upload-type').value;
+            const content = document.getElementById('pvf-upload-content').value;
+            
+            if (!content.trim()) {
+                alert('请输入文件内容');
+                return;
+            }
+            
+            const data = await api('pvf/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content, type, name: 'uploaded.txt' })
+            });
+            
+            if (data.success) {
+                alert(`上传成功！解析了 ${data.count} 个物品`);
+                loadPvfStatus();
+            } else {
+                alert('上传失败: ' + (data.error || '未知错误'));
+            }
+        }
+        
+        async function importPvfToDb() {
+            if (!confirm('确定要将 PVF 数据导入到数据库吗？这会更新 dnf_item_info 表。')) return;
+            
+            const resultDiv = document.getElementById('pvf-import-result');
+            resultDiv.innerHTML = '<div style="color: var(--warn);">导入中...</div>';
+            
+            // 先获取当前缓存的物品数据
+            const statusData = await api('pvf/status');
+            if (!statusData.cached) {
+                resultDiv.innerHTML = '<div style="color: var(--danger);">没有缓存数据，请先加载 PVF 文件</div>';
+                return;
+            }
+            
+            // 获取物品列表
+            const itemsData = await api('items?q=&page=1&page_size=99999');
+            
+            const data = await api('pvf/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: itemsData.data || [] })
+            });
+            
+            if (data.success) {
+                resultDiv.innerHTML = `
+                    <div style="color: var(--ok);">
+                        导入成功！<br>
+                        新增: ${data.imported} 条<br>
+                        更新: ${data.updated} 条<br>
+                        错误: ${data.errors} 条<br>
+                        总计: ${data.total} 条
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = `<div style="color: var(--danger);">导入失败: ${data.error}</div>`;
+            }
+        }
+        
+        async function previewPvfData() {
+            const data = await api('items?q=&page=1&page_size=20');
+            const resultDiv = document.getElementById('pvf-import-result');
+            
+            if (data.data && data.data.length > 0) {
+                resultDiv.innerHTML = `
+                    <div style="margin-top: 12px;">
+                        <div style="font-weight: 600; margin-bottom: 8px;">预览前 20 条数据:</div>
+                        <table class="table" style="font-size: 12px;">
+                            <thead><tr><th>ID</th><th>名称</th><th>分类</th></tr></thead>
+                            <tbody>
+                                ${data.data.map(item => `
+                                    <tr><td>${item.id}</td><td>${item.name}</td><td>${item.category}</td></tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <div style="color: var(--muted); margin-top: 8px;">共 ${data.total} 条数据</div>
+                    </div>
+                `;
+            } else {
+                resultDiv.innerHTML = '<div style="color: var(--muted);">没有数据</div>';
+            }
         }
         
         // 加载物品列表
