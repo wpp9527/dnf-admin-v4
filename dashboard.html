@@ -1144,22 +1144,48 @@
                 <div class="panel" id="panel-events">
                     <div class="card">
                         <div class="card-header">
-                            <div class="card-title">活动列表</div>
+                            <div class="card-title">活动管理</div>
+                            <button class="btn btn-primary" onclick="loadEvents()">刷新</button>
                         </div>
                         <div class="card-body">
-                            <button class="btn btn-ghost" onclick="loadEvents()" style="margin-bottom: 12px;">加载活动</button>
+                            <div style="margin-bottom: 12px; padding: 12px; background: var(--panel2); border-radius: 8px;">
+                                <div style="font-size: 14px; color: var(--muted);">
+                                    <strong>说明：</strong>
+                                    <ul style="margin-top: 8px; padding-left: 20px;">
+                                        <li>活动启用后，日期自动设置为今天起30天</li>\li>
+                                        <li>活动禁用后，日期清空为 0000-00-00</li>
+                                        <li>也可以手动设置自定义日期范围</li>
+                                    </ul>
+                                </div>
+                            </div>
                             <table class="table">
                                 <thead>
                                     <tr>
                                         <th>ID</th>
                                         <th>活动名称</th>
-                                        <th>开始时间</th>
-                                        <th>结束时间</th>
+                                        <th>说明</th>
+                                        <th>类型</th>
+                                        <th>开始日期</th>
+                                        <th>结束日期</th>
                                         <th>状态</th>
+                                        <th>操作</th>
                                     </tr>
                                 </thead>
                                 <tbody id="events-body"></tbody>
                             </table>
+                        </div>
+                    </div>
+                    
+                    <div class="card" style="margin-top: 16px;">
+                        <div class="card-header">
+                            <div class="card-title">批量操作</div>
+                        </div>
+                        <div class="card-body">
+                            <div style="display: flex; gap: 12px;">
+                                <button class="btn btn-primary" onclick="enableAllEvents()">启用全部活动</button>
+                                <button class="btn btn-danger" onclick="disableAllEvents()">禁用全部活动</button>
+                                <button class="btn btn-ghost" onclick="loadEvents()">刷新列表</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2094,20 +2120,122 @@
             const tbody = document.getElementById('events-body');
             tbody.innerHTML = '';
             
+            // 活动类型映射
+            const APPLY_TYPES = {0: '全局', 1: '等级', 2: '频道', 3: '其他'};
+            
             for (const event of (data.events || [])) {
-                const status = event.end_time && new Date(event.end_time) < new Date() ? '已结束' : '进行中';
-                const statusColor = status === '进行中' ? 'var(--ok)' : 'var(--muted)';
+                const isEnabled = event.is_enabled;
+                const statusColor = isEnabled ? 'var(--ok)' : 'var(--muted)';
+                const statusText = isEnabled ? '已启用' : '未启用';
                 
                 tbody.innerHTML += `
                     <tr>
-                        <td>${event.idx || '-'}</td>
-                        <td>${event.event_name || event.name || '-'}</td>
-                        <td>${event.start_time || '-'}</td>
-                        <td>${event.end_time || '-'}</td>
-                        <td><span style="color: ${statusColor}">${status}</span></td>
+                        <td>${event.event_id || '-'}</td>
+                        <td>${event.event_name || '-'}</td>
+                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${event.event_explain || '-'}</td>
+                        <td>${APPLY_TYPES[event.apply_type] || event.apply_type}</td>
+                        <td>${event.start_date || '-'}</td>
+                        <td>${event.end_date || '-'}</td>
+                        <td><span style="color: ${statusColor}; font-weight: 600;">${statusText}</span></td>
+                        <td>
+                            <button class="btn ${isEnabled ? 'btn-danger' : 'btn-primary'} btn-sm" 
+                                    onclick="toggleEvent(${event.event_id}, ${!isEnabled})">
+                                ${isEnabled ? '禁用' : '启用'}
+                            </button>
+                            <button class="btn btn-ghost btn-sm" onclick="setEventDate(${event.event_id})">设置日期</button>
+                        </td>
                     </tr>
                 `;
             }
+        }
+        
+        // 切换活动状态
+        async function toggleEvent(eventId, enable) {
+            const action = enable ? '启用' : '禁用';
+            if (!confirm(`确定要${action}活动 ${eventId} 吗？`)) return;
+            
+            const data = await api('event/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event_id: eventId, enable })
+            });
+            
+            if (data.success) {
+                alert(`${action}成功！`);
+                loadEvents();
+            } else {
+                alert(`${action}失败: ` + (data.error || '未知错误'));
+            }
+        }
+        
+        // 设置活动日期
+        async function setEventDate(eventId) {
+            const startDate = prompt('请输入开始日期 (YYYY-MM-DD):');
+            if (!startDate) return;
+            
+            const endDate = prompt('请输入结束日期 (YYYY-MM-DD):');
+            if (!endDate) return;
+            
+            const data = await api('event/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event_id: eventId, start_date: startDate, end_date: endDate })
+            });
+            
+            if (data.success) {
+                alert('设置成功！');
+                loadEvents();
+            } else {
+                alert('设置失败: ' + (data.error || '未知错误'));
+            }
+        }
+        
+        // 启用全部活动
+        async function enableAllEvents() {
+            if (!confirm('确定要启用全部活动吗？这会设置日期为今天起30天。')) return;
+            
+            const data = await api('events');
+            let success = 0;
+            let errors = 0;
+            
+            for (const event of (data.events || [])) {
+                if (!event.is_enabled) {
+                    const result = await api('event/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ event_id: event.event_id, enable: true })
+                    });
+                    if (result.success) success++;
+                    else errors++;
+                }
+            }
+            
+            alert(`完成！成功: ${success}, 失败: ${errors}`);
+            loadEvents();
+        }
+        
+        // 禁用全部活动
+        async function disableAllEvents() {
+            if (!confirm('确定要禁用全部活动吗？')) return;
+            
+            const data = await api('events');
+            let success = 0;
+            let errors = 0;
+            
+            for (const event of (data.events || [])) {
+                if (event.is_enabled) {
+                    const result = await api('event/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ event_id: event.event_id, enable: false })
+                    });
+                    if (result.success) success++;
+                    else errors++;
+                }
+            }
+            
+            alert(`完成！成功: ${success}, 失败: ${errors}`);
+            loadEvents();
         }
         
         // 加载物品列表

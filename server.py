@@ -995,17 +995,46 @@ def get_server_issues():
 def get_events():
     """获取活动列表"""
     try:
-        events = query_db("SELECT * FROM d_taiwan.dnf_event_info ORDER BY idx DESC LIMIT 50", db='d_taiwan')
+        events = query_db("SELECT * FROM d_taiwan.dnf_event_info ORDER BY event_id", db='d_taiwan')
         for event in events:
             for key, value in event.items():
                 if isinstance(value, bytes):
                     event[key] = decode_bytes(value)
                 elif hasattr(value, 'strftime'):
-                    event[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+                    event[key] = value.strftime('%Y-%m-%d')
+            # 判断活动是否启用（日期不是0000-00-00）
+            event['is_enabled'] = event.get('start_date') not in ['0000-00-00', '', None] and event.get('end_date') not in ['0000-00-00', '', None]
         return {'events': events}
     except Exception as e:
         print(f"[EVENT ERROR] {e}")
         return {'events': [], 'error': str(e)}
+
+def update_event(event_id, start_date=None, end_date=None, enable=None):
+    """更新活动配置"""
+    try:
+        conn = pymysql.connect(**DB_CONFIG, database='d_taiwan')
+        cursor = conn.cursor()
+        
+        if enable is not None:
+            if enable:
+                # 启用活动：设置日期为今天起30天
+                from datetime import datetime, timedelta
+                today = datetime.now().strftime('%Y-%m-%d')
+                end = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+                cursor.execute("UPDATE dnf_event_info SET start_date = %s, end_date = %s WHERE event_id = %s", (today, end, event_id))
+            else:
+                # 禁用活动：清空日期
+                cursor.execute("UPDATE dnf_event_info SET start_date = '0000-00-00', end_date = '0000-00-00' WHERE event_id = %s", (event_id,))
+        elif start_date and end_date:
+            cursor.execute("UPDATE dnf_event_info SET start_date = %s, end_date = %s WHERE event_id = %s", (start_date, end_date, event_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return {'success': True, 'message': f'活动 {event_id} 已更新'}
+    except Exception as e:
+        print(f"[EVENT UPDATE ERROR] {e}")
+        return {'error': str(e)}
 
 def get_server_config():
     """获取服务端配置"""
@@ -1240,6 +1269,15 @@ class DNFHandler(BaseHTTPRequestHandler):
                         self.json_response({'error': str(e)}, 500)
                 else:
                     self.json_response({'error': '请提供 uid'}, 400)
+            elif path == '/api/event/update':
+                event_id = data.get('event_id')
+                start_date = data.get('start_date')
+                end_date = data.get('end_date')
+                enable = data.get('enable')
+                if event_id is not None:
+                    self.json_response(update_event(event_id, start_date, end_date, enable))
+                else:
+                    self.json_response({'error': '请提供 event_id'}, 400)
             else:
                 self.json_response({'error': 'not found'}, 404)
         except Exception as e:
