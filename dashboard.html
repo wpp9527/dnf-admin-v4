@@ -1,0 +1,1429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNF 管理后台 v4.0</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+        
+        :root {
+            --bg: #0f1419;
+            --panel: #1a1f2e;
+            --panel2: #242b3d;
+            --line: #2d3548;
+            --text: #e1e8f0;
+            --muted: #6b7b8d;
+            --ok: #00d68f;
+            --warn: #ffaa00;
+            --danger: #ff3d71;
+            --acc: #3366ff;
+            --acc2: #9b51e0;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+        }
+        
+        /* 布局 */
+        .app {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        /* 侧边栏 */
+        .sidebar {
+            width: 240px;
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .logo {
+            padding: 20px;
+            border-bottom: 1px solid var(--line);
+            text-align: center;
+        }
+        
+        .logo h1 {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--acc), var(--acc2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .logo .version {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        
+        .nav {
+            flex: 1;
+            padding: 12px;
+            overflow-y: auto;
+        }
+        
+        .nav-group {
+            margin-bottom: 16px;
+        }
+        
+        .nav-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            padding: 8px 12px;
+        }
+        
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all .2s;
+            font-size: 14px;
+            color: var(--text);
+        }
+        
+        .nav-item:hover {
+            background: var(--panel2);
+        }
+        
+        .nav-item.active {
+            background: var(--acc);
+            color: #fff;
+        }
+        
+        .nav-item .icon {
+            font-size: 18px;
+            width: 24px;
+            text-align: center;
+        }
+        
+        .nav-item .badge {
+            margin-left: auto;
+            background: var(--panel2);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            color: var(--muted);
+        }
+        
+        .nav-item.active .badge {
+            background: rgba(255,255,255,.2);
+            color: #fff;
+        }
+        
+        /* 主内容区 */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* 顶部栏 */
+        .header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--panel);
+        }
+        
+        .header-title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all .2s;
+        }
+        
+        .btn-primary {
+            background: var(--acc);
+            color: #fff;
+        }
+        
+        .btn-primary:hover {
+            background: #2952cc;
+        }
+        
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--line);
+            color: var(--text);
+        }
+        
+        .btn-ghost:hover {
+            background: var(--panel2);
+        }
+        
+        /* 内容区 */
+        .content {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+        
+        /* 统计卡片 */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .stat-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        
+        .stat-label {
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        
+        .stat-value.ok { color: var(--ok); }
+        .stat-value.warn { color: var(--warn); }
+        .stat-value.danger { color: var(--danger); }
+        .stat-value.acc { color: var(--acc); }
+        
+        /* 面板 */
+        .panel {
+            display: none;
+        }
+        
+        .panel.active {
+            display: block;
+        }
+        
+        /* 卡片 */
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .card-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        /* 表格 */
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .table th,
+        .table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+        }
+        
+        .table th {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
+        
+        .table tr:hover {
+            background: var(--panel2);
+        }
+        
+        .table .actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 12px;
+            border-radius: 4px;
+        }
+        
+        /* 表单 */
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: var(--muted);
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--panel2);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            transition: border-color .2s;
+        }
+        
+        .form-input:focus {
+            border-color: var(--acc);
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        
+        /* 搜索框 */
+        .search-box {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .search-box .form-input {
+            flex: 1;
+        }
+        
+        /* 分页 */
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 0;
+        }
+        
+        .pagination-info {
+            font-size: 13px;
+            color: var(--muted);
+        }
+        
+        .pagination-btns {
+            display: flex;
+            gap: 8px;
+        }
+        
+        /* 弹窗 */
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .modal.open {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-close:hover {
+            background: var(--panel2);
+            color: var(--text);
+        }
+        
+        .modal-body {
+            padding: 24px;
+        }
+        
+        /* 标签 */
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .tag-ok { background: rgba(0,214,143,.1); color: var(--ok); }
+        .tag-warn { background: rgba(255,170,0,.1); color: var(--warn); }
+        .tag-danger { background: rgba(255,61,113,.1); color: var(--danger); }
+        .tag-info { background: rgba(51,102,255,.1); color: var(--acc); }
+        
+        /* 描述列表 */
+        .desc-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+        
+        .desc-item {
+            padding: 12px;
+            background: var(--panel2);
+            border-radius: 8px;
+        }
+        
+        .desc-label {
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        
+        .desc-value {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        /* 快速操作 */
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+        }
+        
+        .action-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: all .2s;
+        }
+        
+        .action-card:hover {
+            border-color: var(--acc);
+            transform: translateY(-2px);
+        }
+        
+        .action-card .icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+        
+        .action-card .title {
+            font-size: 13px;
+            color: var(--muted);
+        }
+        
+        /* 加载动画 */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--muted);
+        }
+        
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--line);
+            border-top-color: var(--acc);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 60px;
+            }
+            
+            .nav-item span:not(.icon) {
+                display: none;
+            }
+            
+            .nav-item .badge {
+                display: none;
+            }
+            
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- 侧边栏 -->
+        <div class="sidebar">
+            <div class="logo">
+                <h1>DNF 管理后台</h1>
+                <div class="version">v4.0</div>
+            </div>
+            <div class="nav">
+                <div class="nav-group">
+                    <div class="nav-title">概览</div>
+                    <div class="nav-item active" data-page="dashboard">
+                        <span class="icon">📊</span>
+                        <span>仪表盘</span>
+                    </div>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-title">玩家管理</div>
+                    <div class="nav-item" data-page="characters">
+                        <span class="icon">👥</span>
+                        <span>角色列表</span>
+                        <span class="badge" id="char-count">0</span>
+                    </div>
+                    <div class="nav-item" data-page="accounts">
+                        <span class="icon">👤</span>
+                        <span>账号列表</span>
+                    </div>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-title">数据查询</div>
+                    <div class="nav-item" data-page="items">
+                        <span class="icon">📦</span>
+                        <span>物品查询</span>
+                    </div>
+                    <div class="nav-item" data-page="skills">
+                        <span class="icon">⚔️</span>
+                        <span>技能查询</span>
+                    </div>
+                    <div class="nav-item" data-page="monsters">
+                        <span class="icon">👹</span>
+                        <span>怪物查询</span>
+                    </div>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-title">系统管理</div>
+                    <div class="nav-item" data-page="gm">
+                        <span class="icon">🎮</span>
+                        <span>GM工具</span>
+                    </div>
+                    <div class="nav-item" data-page="mail">
+                        <span class="icon">📧</span>
+                        <span>邮件系统</span>
+                    </div>
+                    <div class="nav-item" data-page="notice">
+                        <span class="icon">📢</span>
+                        <span>公告管理</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 主内容区 -->
+        <div class="main">
+            <div class="header">
+                <div class="header-title" id="page-title">仪表盘</div>
+                <div class="header-actions">
+                    <button class="btn btn-ghost" onclick="refreshData()">刷新</button>
+                </div>
+            </div>
+            
+            <div class="content">
+                <!-- 仪表盘 -->
+                <div class="panel active" id="panel-dashboard">
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-label">总角色数</div>
+                            <div class="stat-value acc" id="stat-chars">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">总账号数</div>
+                            <div class="stat-value ok" id="stat-accounts">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">物品总数</div>
+                            <div class="stat-value warn" id="stat-items">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">技能总数</div>
+                            <div class="stat-value" id="stat-skills">-</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">怪物总数</div>
+                            <div class="stat-value danger" id="stat-monsters">-</div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">快速操作</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="quick-actions">
+                                <div class="action-card" onclick="showPage('characters')">
+                                    <div class="icon">👥</div>
+                                    <div class="title">角色管理</div>
+                                </div>
+                                <div class="action-card" onclick="showPage('items')">
+                                    <div class="icon">📦</div>
+                                    <div class="title">物品查询</div>
+                                </div>
+                                <div class="action-card" onclick="showPage('gm')">
+                                    <div class="icon">🎮</div>
+                                    <div class="title">GM工具</div>
+                                </div>
+                                <div class="action-card" onclick="showPage('notice')">
+                                    <div class="icon">📢</div>
+                                    <div class="title">发布公告</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 角色列表 -->
+                <div class="panel" id="panel-characters">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">角色列表</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="search-box">
+                                <input type="text" class="form-input" id="char-search" placeholder="搜索角色名...">
+                                <select class="form-input" id="char-job" style="width: 150px;">
+                                    <option value="">全部职业</option>
+                                </select>
+                                <input type="number" class="form-input" id="char-min-lev" placeholder="最低等级" style="width: 120px;">
+                                <input type="number" class="form-input" id="char-max-lev" placeholder="最高等级" style="width: 120px;">
+                                <button class="btn btn-primary" onclick="loadCharacters()">搜索</button>
+                            </div>
+                            
+                            <div class="loading" id="char-loading" style="display: none;">
+                                <div class="spinner"></div>
+                                <span>加载中...</span>
+                            </div>
+                            
+                            <table class="table" id="char-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>昵称</th>
+                                        <th>职业</th>
+                                        <th>等级</th>
+                                        <th>HP</th>
+                                        <th>MP</th>
+                                        <th>物攻</th>
+                                        <th>物防</th>
+                                        <th>魔攻</th>
+                                        <th>魔防</th>
+                                        <th>疲劳</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="char-body"></tbody>
+                            </table>
+                            
+                            <div class="pagination">
+                                <div class="pagination-info" id="char-info">共 0 条</div>
+                                <div class="pagination-btns">
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('char', -1)">上一页</button>
+                                    <span id="char-page">1</span>
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('char', 1)">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 物品查询 -->
+                <div class="panel" id="panel-items">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">物品查询</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="search-box">
+                                <input type="text" class="form-input" id="item-search" placeholder="搜索物品名称...">
+                                <button class="btn btn-primary" onclick="loadItems()">搜索</button>
+                            </div>
+                            
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>名称</th>
+                                        <th>分类</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="item-body"></tbody>
+                            </table>
+                            
+                            <div class="pagination">
+                                <div class="pagination-info" id="item-info">共 0 条</div>
+                                <div class="pagination-btns">
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('item', -1)">上一页</button>
+                                    <span id="item-page">1</span>
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('item', 1)">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 技能查询 -->
+                <div class="panel" id="panel-skills">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">技能查询</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="search-box">
+                                <select class="form-input" id="skill-job" style="width: 200px;"></select>
+                                <button class="btn btn-primary" onclick="loadSkills()">查询</button>
+                            </div>
+                            
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>名称</th>
+                                        <th>描述</th>
+                                        <th>需要等级</th>
+                                        <th>消耗MP</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="skill-body"></tbody>
+                            </table>
+                            
+                            <div class="pagination">
+                                <div class="pagination-info" id="skill-info">共 0 条</div>
+                                <div class="pagination-btns">
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('skill', -1)">上一页</button>
+                                    <span id="skill-page">1</span>
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('skill', 1)">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 怪物查询 -->
+                <div class="panel" id="panel-monsters">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">怪物查询</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="search-box">
+                                <input type="text" class="form-input" id="monster-search" placeholder="搜索怪物名称...">
+                                <button class="btn btn-primary" onclick="loadMonsters()">搜索</button>
+                            </div>
+                            
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>名称</th>
+                                        <th>等级</th>
+                                        <th>HP</th>
+                                        <th>攻击</th>
+                                        <th>防御</th>
+                                        <th>类型</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="monster-body"></tbody>
+                            </table>
+                            
+                            <div class="pagination">
+                                <div class="pagination-info" id="monster-info">共 0 条</div>
+                                <div class="pagination-btns">
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('monster', -1)">上一页</button>
+                                    <span id="monster-page">1</span>
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('monster', 1)">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- GM工具 -->
+                <div class="panel" id="panel-gm">
+                    <div class="stats">
+                        <div class="stat-card">
+                            <div class="stat-label">发送物品</div>
+                            <div class="form-group">
+                                <label class="form-label">角色ID</label>
+                                <input type="number" class="form-input" id="gm-charac-no">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">物品ID</label>
+                                <input type="number" class="form-input" id="gm-item-id">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">数量</label>
+                                    <input type="number" class="form-input" id="gm-item-count" value="1">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">强化</label>
+                                    <input type="number" class="form-input" id="gm-item-upgrade" value="0">
+                                </div>
+                            </div>
+                            <button class="btn btn-primary" onclick="gmSendItem()" style="width: 100%;">发送物品</button>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-label">设置等级</div>
+                            <div class="form-group">
+                                <label class="form-label">角色ID</label>
+                                <input type="number" class="form-input" id="gm-level-charac">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">等级</label>
+                                <input type="number" class="form-input" id="gm-level">
+                            </div>
+                            <button class="btn btn-primary" onclick="gmSetLevel()" style="width: 100%;">设置等级</button>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-label">添加金币</div>
+                            <div class="form-group">
+                                <label class="form-label">角色ID</label>
+                                <input type="number" class="form-input" id="gm-gold-charac">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">金币数量</label>
+                                <input type="number" class="form-input" id="gm-gold">
+                            </div>
+                            <button class="btn btn-primary" onclick="gmAddGold()" style="width: 100%;">添加金币</button>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-label">用户管理</div>
+                            <div class="form-group">
+                                <label class="form-label">用户UID</label>
+                                <input type="number" class="form-input" id="gm-user-uid">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">封禁原因</label>
+                                <input type="text" class="form-input" id="gm-ban-reason" value="违规操作">
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-primary" onclick="gmKick()" style="flex: 1;">踢出</button>
+                                <button class="btn btn-primary" onclick="gmBan()" style="flex: 1; background: var(--danger);">封禁</button>
+                                <button class="btn btn-primary" onclick="gmUnban()" style="flex: 1; background: var(--ok);">解封</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 邮件系统 -->
+                <div class="panel" id="panel-mail">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">发送邮件</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">收件人（角色名或ID）</label>
+                                <input type="text" class="form-input" id="mail-to">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">物品ID</label>
+                                    <input type="number" class="form-input" id="mail-item-id">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">数量</label>
+                                    <input type="number" class="form-input" id="mail-count" value="1">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">金币</label>
+                                    <input type="number" class="form-input" id="mail-gold" value="0">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">消息内容</label>
+                                <textarea class="form-input" id="mail-message" rows="4"></textarea>
+                            </div>
+                            <button class="btn btn-primary" onclick="sendMail()">发送邮件</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 公告管理 -->
+                <div class="panel" id="panel-notice">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">公告管理</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">公告内容</label>
+                                <textarea class="form-input" id="notice-content" rows="10" placeholder="请输入公告内容..."></textarea>
+                            </div>
+                            <div style="display: flex; gap: 12px;">
+                                <button class="btn btn-primary" onclick="saveNotice()">保存公告</button>
+                                <button class="btn btn-ghost" onclick="loadNotice()">加载公告</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 角色详情弹窗 -->
+    <div class="modal" id="char-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="char-modal-title">角色详情</div>
+                <button class="modal-close" onclick="closeModal('char-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="desc-list" id="char-detail"></div>
+                
+                <div style="margin-top: 20px;">
+                    <h3 style="margin-bottom: 12px;">背包物品 (<span id="char-item-count">0</span>个)</h3>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>槽位</th>
+                                <th>物品名称</th>
+                                <th>物品ID</th>
+                            </tr>
+                        </thead>
+                        <tbody id="char-items-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 状态
+        const state = {
+            currentPage: 'dashboard',
+            charPage: 1,
+            itemPage: 1,
+            skillPage: 1,
+            monsterPage: 1,
+            pageSize: 20,
+            jobs: {}
+        };
+        
+        // API 调用
+        async function api(path, options = {}) {
+            const response = await fetch('/api/' + path, options);
+            return await response.json();
+        }
+        
+        // 初始化
+        async function init() {
+            // 加载职业列表
+            const jobsData = await api('jobs');
+            state.jobs = jobsData.jobs || {};
+            
+            // 填充职业选择框
+            const charJobSelect = document.getElementById('char-job');
+            const skillJobSelect = document.getElementById('skill-job');
+            
+            for (const [id, name] of Object.entries(state.jobs)) {
+                if (parseInt(id) < 100) {
+                    charJobSelect.innerHTML += `<option value="${id}">${name}</option>`;
+                    skillJobSelect.innerHTML += `<option value="${id}">${name}</option>`;
+                }
+            }
+            
+            // 加载统计数据
+            loadStats();
+        }
+        
+        // 加载统计数据
+        async function loadStats() {
+            const stats = await api('stats');
+            document.getElementById('stat-chars').textContent = stats.total_chars || 0;
+            document.getElementById('stat-accounts').textContent = stats.total_accounts || 0;
+            document.getElementById('stat-items').textContent = stats.total_items || 0;
+            document.getElementById('stat-skills').textContent = stats.total_skills || 0;
+            document.getElementById('stat-monsters').textContent = stats.total_monsters || 0;
+            document.getElementById('char-count').textContent = stats.total_chars || 0;
+        }
+        
+        // 页面切换
+        function showPage(page) {
+            state.currentPage = page;
+            
+            // 更新导航
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.page === page);
+            });
+            
+            // 更新面板
+            document.querySelectorAll('.panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === 'panel-' + page);
+            });
+            
+            // 更新标题
+            const titles = {
+                dashboard: '仪表盘',
+                characters: '角色列表',
+                accounts: '账号列表',
+                items: '物品查询',
+                skills: '技能查询',
+                monsters: '怪物查询',
+                gm: 'GM工具',
+                mail: '邮件系统',
+                notice: '公告管理'
+            };
+            document.getElementById('page-title').textContent = titles[page] || page;
+            
+            // 加载数据
+            if (page === 'characters') loadCharacters();
+            if (page === 'items') loadItems();
+            if (page === 'skills') loadSkills();
+            if (page === 'monsters') loadMonsters();
+            if (page === 'notice') loadNotice();
+        }
+        
+        // 加载角色列表
+        async function loadCharacters() {
+            const search = document.getElementById('char-search').value;
+            const job = document.getElementById('char-job').value;
+            const minLev = document.getElementById('char-min-lev').value;
+            const maxLev = document.getElementById('char-max-lev').value;
+            
+            document.getElementById('char-loading').style.display = 'flex';
+            
+            const params = new URLSearchParams({
+                page: state.charPage,
+                page_size: state.pageSize
+            });
+            if (search) params.append('name', search);
+            if (job) params.append('job', job);
+            if (minLev) params.append('min_lev', minLev);
+            if (maxLev) params.append('max_lev', maxLev);
+            
+            const data = await api('characters?' + params);
+            document.getElementById('char-loading').style.display = 'none';
+            
+            const tbody = document.getElementById('char-body');
+            tbody.innerHTML = '';
+            
+            for (const char of (data.data || [])) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${char.m_id}</td>
+                        <td>${char.charac_name || '-'}</td>
+                        <td>${char.job_name || '-'}</td>
+                        <td>${char.lev || 0}</td>
+                        <td>${char.maxHP || 0}</td>
+                        <td>${char.maxMP || 0}</td>
+                        <td>${char.phy_attack || 0}</td>
+                        <td>${char.phy_defense || 0}</td>
+                        <td>${char.mag_attack || 0}</td>
+                        <td>${char.mag_defense || 0}</td>
+                        <td>${char.fatigue || 0}/${char.max_fatigue || 156}</td>
+                        <td>
+                            <div class="actions">
+                                <button class="btn btn-ghost btn-sm" onclick="showCharDetail(${char.m_id})">详情</button>
+                                <button class="btn btn-ghost btn-sm" onclick="sendMailTo('${char.charac_name}')">邮件</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+            
+            document.getElementById('char-info').textContent = `共 ${data.total || 0} 条`;
+            document.getElementById('char-page').textContent = state.charPage;
+        }
+        
+        // 显示角色详情
+        async function showCharDetail(charId) {
+            const data = await api('character/' + charId);
+            const char = data.data;
+            
+            if (!char) return;
+            
+            document.getElementById('char-modal-title').textContent = '角色详情 - ' + (char.charac_name || '');
+            
+            const detail = document.getElementById('char-detail');
+            detail.innerHTML = `
+                <div class="desc-item"><div class="desc-label">ID</div><div class="desc-value">${char.m_id}</div></div>
+                <div class="desc-item"><div class="desc-label">昵称</div><div class="desc-value">${char.charac_name || '-'}</div></div>
+                <div class="desc-item"><div class="desc-label">职业</div><div class="desc-value">${char.job_name || '-'}</div></div>
+                <div class="desc-item"><div class="desc-label">等级</div><div class="desc-value">${char.lev || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">HP</div><div class="desc-value">${char.HP || 0}/${char.maxHP || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">MP</div><div class="desc-value">${char.maxMP || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">物攻</div><div class="desc-value">${char.phy_attack || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">魔攻</div><div class="desc-value">${char.mag_attack || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">物防</div><div class="desc-value">${char.phy_defense || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">魔防</div><div class="desc-value">${char.mag_defense || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">疲劳</div><div class="desc-value">${char.fatigue || 0}/${char.max_fatigue || 156}</div></div>
+                <div class="desc-item"><div class="desc-label">创建时间</div><div class="desc-value">${char.create_time || '-'}</div></div>
+            `;
+            
+            // 背包物品
+            document.getElementById('char-item-count').textContent = char.inventory_count || 0;
+            const itemsBody = document.getElementById('char-items-body');
+            itemsBody.innerHTML = '';
+            
+            for (const item of (char.inventory || [])) {
+                itemsBody.innerHTML += `
+                    <tr>
+                        <td>${item.slot_name || item.slot}</td>
+                        <td>${item.item_name || '-'}</td>
+                        <td>${item.it_id}</td>
+                    </tr>
+                `;
+            }
+            
+            document.getElementById('char-modal').classList.add('open');
+        }
+        
+        // 关闭弹窗
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('open');
+        }
+        
+        // 加载物品列表
+        async function loadItems() {
+            const search = document.getElementById('item-search').value;
+            
+            const params = new URLSearchParams({
+                q: search,
+                page: state.itemPage,
+                page_size: state.pageSize
+            });
+            
+            const data = await api('items?' + params);
+            
+            const tbody = document.getElementById('item-body');
+            tbody.innerHTML = '';
+            
+            for (const item of (data.data || [])) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${item.id}</td>
+                        <td>${item.name}</td>
+                        <td>${item.category}</td>
+                        <td><button class="btn btn-ghost btn-sm">详情</button></td>
+                    </tr>
+                `;
+            }
+            
+            document.getElementById('item-info').textContent = `共 ${data.total || 0} 条`;
+            document.getElementById('item-page').textContent = state.itemPage;
+        }
+        
+        // 加载技能列表
+        async function loadSkills() {
+            const job = document.getElementById('skill-job').value || 100;
+            
+            const params = new URLSearchParams({
+                job: job,
+                page: state.skillPage,
+                page_size: state.pageSize
+            });
+            
+            const data = await api('skills?' + params);
+            
+            const tbody = document.getElementById('skill-body');
+            tbody.innerHTML = '';
+            
+            for (const skill of (data.data || [])) {
+                const desc = skill.basic_explain || '-';
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${skill.skill_index}</td>
+                        <td>${skill.name || '-'}</td>
+                        <td>${desc.substring(0, 50)}${desc.length > 50 ? '...' : ''}</td>
+                        <td>${skill.required_level || 0}</td>
+                        <td>${skill.consume_mp || 0}</td>
+                    </tr>
+                `;
+            }
+            
+            document.getElementById('skill-info').textContent = `共 ${data.total || 0} 条`;
+            document.getElementById('skill-page').textContent = state.skillPage;
+        }
+        
+        // 加载怪物列表
+        async function loadMonsters() {
+            const search = document.getElementById('monster-search').value;
+            
+            const params = new URLSearchParams({
+                q: search,
+                page: state.monsterPage,
+                page_size: state.pageSize
+            });
+            
+            const data = await api('monsters?' + params);
+            
+            const tbody = document.getElementById('monster-body');
+            tbody.innerHTML = '';
+            
+            for (const monster of (data.data || [])) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${monster.idx}</td>
+                        <td>${monster.mon_name_kr || '-'}</td>
+                        <td>${monster.level || 0}</td>
+                        <td>${monster.hp || 0}</td>
+                        <td>${monster.attack || 0}</td>
+                        <td>${monster.defense || 0}</td>
+                        <td>${monster.monster_type || '-'}</td>
+                    </tr>
+                `;
+            }
+            
+            document.getElementById('monster-info').textContent = `共 ${data.total || 0} 条`;
+            document.getElementById('monster-page').textContent = state.monsterPage;
+        }
+        
+        // 分页
+        function changePage(type, delta) {
+            const pageKey = type + 'Page';
+            state[pageKey] = Math.max(1, state[pageKey] + delta);
+            
+            if (type === 'char') loadCharacters();
+            if (type === 'item') loadItems();
+            if (type === 'skill') loadSkills();
+            if (type === 'monster') loadMonsters();
+        }
+        
+        // GM 功能
+        async function gmSendItem() {
+            const charac_no = document.getElementById('gm-charac-no').value;
+            const item_id = document.getElementById('gm-item-id').value;
+            const count = document.getElementById('gm-item-count').value;
+            const upgrade = document.getElementById('gm-item-upgrade').value;
+            
+            if (!charac_no || !item_id) {
+                alert('请输入角色ID和物品ID');
+                return;
+            }
+            
+            const data = await api('gm/send-item', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ charac_no: parseInt(charac_no), item_id: parseInt(item_id), count: parseInt(count), upgrade: parseInt(upgrade) })
+            });
+            
+            alert(data.message);
+        }
+        
+        async function gmSetLevel() {
+            const charac_no = document.getElementById('gm-level-charac').value;
+            const level = document.getElementById('gm-level').value;
+            
+            if (!charac_no || !level) {
+                alert('请输入角色ID和等级');
+                return;
+            }
+            
+            const data = await api('gm/set-level', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ charac_no: parseInt(charac_no), level: parseInt(level) })
+            });
+            
+            alert(data.message);
+        }
+        
+        async function gmAddGold() {
+            const charac_no = document.getElementById('gm-gold-charac').value;
+            const gold = document.getElementById('gm-gold').value;
+            
+            if (!charac_no || !gold) {
+                alert('请输入角色ID和金币数量');
+                return;
+            }
+            
+            const data = await api('gm/add-gold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ charac_no: parseInt(charac_no), gold: parseInt(gold) })
+            });
+            
+            alert(data.message);
+        }
+        
+        async function gmKick() {
+            const uid = document.getElementById('gm-user-uid').value;
+            if (!uid) { alert('请输入用户UID'); return; }
+            
+            const data = await api('gm/kick', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: parseInt(uid) })
+            });
+            
+            alert(data.message);
+        }
+        
+        async function gmBan() {
+            const uid = document.getElementById('gm-user-uid').value;
+            const reason = document.getElementById('gm-ban-reason').value;
+            if (!uid) { alert('请输入用户UID'); return; }
+            
+            const data = await api('gm/ban', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: parseInt(uid), reason, duration: 0 })
+            });
+            
+            alert(data.message);
+        }
+        
+        async function gmUnban() {
+            const uid = document.getElementById('gm-user-uid').value;
+            if (!uid) { alert('请输入用户UID'); return; }
+            
+            const data = await api('gm/unban', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: parseInt(uid) })
+            });
+            
+            alert(data.message);
+        }
+        
+        // 邮件功能
+        function sendMailTo(name) {
+            document.getElementById('mail-to').value = name;
+            showPage('mail');
+        }
+        
+        async function sendMail() {
+            const to = document.getElementById('mail-to').value;
+            const item_id = document.getElementById('mail-item-id').value;
+            const count = document.getElementById('mail-count').value;
+            const gold = document.getElementById('mail-gold').value;
+            const message = document.getElementById('mail-message').value;
+            
+            if (!to) { alert('请输入收件人'); return; }
+            
+            const data = await api('mail/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to, item_id: parseInt(item_id) || 0, count: parseInt(count) || 1, gold: parseInt(gold) || 0, message })
+            });
+            
+            alert(data.message);
+        }
+        
+        // 公告功能
+        async function loadNotice() {
+            const data = await api('gm/notice');
+            document.getElementById('notice-content').value = data.content || '';
+        }
+        
+        async function saveNotice() {
+            const content = document.getElementById('notice-content').value;
+            
+            const data = await api('gm/notice/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            });
+            
+            alert(data.message);
+        }
+        
+        // 刷新数据
+        function refreshData() {
+            loadStats();
+            if (state.currentPage === 'characters') loadCharacters();
+            if (state.currentPage === 'items') loadItems();
+            if (state.currentPage === 'skills') loadSkills();
+            if (state.currentPage === 'monsters') loadMonsters();
+        }
+        
+        // 绑定导航事件
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                showPage(item.dataset.page);
+            });
+        });
+        
+        // 初始化
+        init();
+    </script>
+</body>
+</html>
