@@ -303,6 +303,32 @@ def load_character_detail(char_id):
         except Exception as e:
             print(f"[EQUIP ERROR] {e}")
     
+    # 读取 inventory blob (背包物品)
+    if inv_data and inv_data[0].get('inventory'):
+        inventory_blob = inv_data[0]['inventory']
+        try:
+            # 解压 inventory (前4字节是长度, 后面是zlib压缩数据)
+            decompressed_inv = zlib.decompress(inventory_blob[4:])
+            
+            # 每个槽位 61 字节
+            slot_size = 61
+            for i in range(0, len(decompressed_inv), slot_size):
+                slot_data = decompressed_inv[i:i+slot_size]
+                if len(slot_data) >= 4:
+                    item_no = struct.unpack('<H', slot_data[2:4])[0]
+                    if item_no > 0:
+                        slot_idx = i // slot_size + 100  # 背包槽位从 100 开始
+                        slot_name = SLOT_NAMES.get(slot_idx, f'背包{slot_idx-100}')
+                        item_name = get_item_name(item_no, slot_idx)
+                        items.append({
+                            'slot': slot_idx,
+                            'slot_name': slot_name,
+                            'it_id': item_no,
+                            'item_name': item_name,
+                        })
+        except Exception as e:
+            print(f"[INVENTORY ERROR] {e}")
+    
     char['inventory'] = items
     char['inventory_count'] = len(items)
     
