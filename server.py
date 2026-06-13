@@ -995,12 +995,17 @@ def get_server_issues():
 def get_events():
     """获取活动列表"""
     try:
-        events = query_db("SELECT * FROM d_taiwan.dnf_event_info ORDER BY event_id", db='d_taiwan')
+        # 使用 utf8 连接避免中文乱码
+        config = {**DB_CONFIG, 'charset': 'utf8', 'use_unicode': True}
+        conn = pymysql.connect(**config, database='d_taiwan')
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute('SELECT * FROM dnf_event_info ORDER BY event_id')
+        events = cursor.fetchall()
+        conn.close()
+        
         for event in events:
             for key, value in event.items():
-                if isinstance(value, bytes):
-                    event[key] = decode_bytes(value)
-                elif hasattr(value, 'strftime'):
+                if hasattr(value, 'strftime'):
                     event[key] = value.strftime('%Y-%m-%d')
             # 判断活动是否启用（日期不是0000-00-00）
             event['is_enabled'] = event.get('start_date') not in ['0000-00-00', '', None] and event.get('end_date') not in ['0000-00-00', '', None]
