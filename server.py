@@ -486,6 +486,119 @@ def gm_unban_user(uid):
     """解封用户"""
     return {'status': 'success', 'message': f'已解封用户: UID={uid}'}
 
+# ==================== 账号功能 ====================
+
+def load_accounts(page=1, page_size=20, filters=None):
+    """加载账号列表"""
+    offset = (page - 1) * page_size
+    
+    where_clauses = []
+    params = []
+    
+    if filters:
+        if filters.get('uid'):
+            where_clauses.append("UID = %s")
+            params.append(int(filters['uid']))
+        if filters.get('name'):
+            where_clauses.append("accountname LIKE %s")
+            params.append(f"%{filters['name']}%")
+    
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+    
+    try:
+        count_sql = f"SELECT COUNT(*) as total FROM d_taiwan.accounts WHERE {where_sql}"
+        total = query_db(count_sql, tuple(params), db='d_taiwan')[0]['total']
+        
+        sql = f"SELECT UID, accountname, qq, billing, VIP, admin, parent_uid FROM d_taiwan.accounts WHERE {where_sql} ORDER BY UID DESC LIMIT %s OFFSET %s"
+        params.extend([page_size, offset])
+        accounts = query_db(sql, tuple(params), db='d_taiwan')
+        
+        for acc in accounts:
+            for field in ['accountname', 'qq']:
+                if acc.get(field):
+                    acc[field] = decode_bytes(acc[field])
+        
+        return {'data': accounts, 'total': total, 'page': page, 'page_size': page_size}
+    except Exception as e:
+        print(f"[ACCOUNT ERROR] {e}")
+        return {'data': [], 'total': 0, 'page': page, 'page_size': page_size}
+
+def load_account_detail(uid):
+    """加载账号详情"""
+    try:
+        sql = "SELECT * FROM d_taiwan.accounts WHERE UID = %s"
+        accs = query_db(sql, (uid,), db='d_taiwan')
+        if not accs:
+            return None
+        
+        acc = accs[0]
+        for field in ['accountname', 'qq']:
+            if acc.get(field):
+                acc[field] = decode_bytes(acc[field])
+        
+        # 查询该账号的角色列表
+        chars_sql = "SELECT charac_no, charac_name, job, lev FROM charac_info WHERE m_id = %s"
+        chars = query_db(chars_sql, (uid,))
+        for c in chars:
+            c['charac_name'] = decode_bytes(c.get('charac_name'))
+            c['job_name'] = JOBS.get(c.get('job'), '未知')
+        acc['characters'] = chars
+        
+        return acc
+    except Exception as e:
+        print(f"[ACCOUNT DETAIL ERROR] {e}")
+        return None
+
+def load_item_detail(item_id):
+    """加载物品详情"""
+    try:
+        sql = "SELECT * FROM dnf_item_info WHERE it_no = %s"
+        items = query_db(sql, (item_id,), db='taiwan_cain_web')
+        if not items:
+            # 尝试从PVF获取
+            pvf = load_pvf_items()
+            if item_id in pvf:
+                return {'it_no': item_id, 'it_name': pvf[item_id], 'source': 'pvf'}
+            return None
+        
+        item = items[0]
+        # 解码所有字符串/blob字段
+        for key, value in item.items():
+            if isinstance(value, bytes):
+                item[key] = decode_bytes(value)
+        
+        # 添加类型名称
+        MASTER_TYPES = {1: '消耗品', 2: '材料', 3: '任务物品', 4: '装备', 5: '时装', 6: '宠物', 7: '称号', 40: '装备'}
+        item['master_type_name'] = MASTER_TYPES.get(item.get('master_type'), '其他')
+        
+        # 添加稀有度名称
+        RARITY = {0: '普通', 1: '高级', 2: '稀有', 3: '神器', 4: '传说', 5: '史诗', 6: '神话'}
+        item['rarity_name'] = RARITY.get(item.get('rarity'), '未知')
+        
+        return item
+    except Exception as e:
+        print(f"[ITEM DETAIL ERROR] {e}")
+        return None
+
+def load_monster_detail(idx):
+    """加载怪物详情"""
+    try:
+        sql = "SELECT * FROM dnf_monster_info WHERE idx = %s"
+        monsters = query_db(sql, (idx,), db='taiwan_cain_web')
+        if not monsters:
+            return None
+        
+        monster = monsters[0]
+        # 解码所有字符串/blob字段
+        for key, value in monster.items():
+            if isinstance(value, bytes):
+                monster[key] = decode_bytes(value)
+        
+        return monster
+    except Exception as e:
+        print(f"[MONSTER DETAIL ERROR] {e}")
+        return None
+
 # ==================== 统计功能 ====================
 
 def get_stats():
@@ -571,6 +684,35 @@ class DNFHandler(BaseHTTPRequestHandler):
                 page = int(params.get('page', [1])[0])
                 page_size = int(params.get('page_size', [50])[0])
                 self.json_response(load_monsters(query, page, page_size))
+            elif path.startswith('/api/monster/'):
+                idx = path.split('/')[-1]
+                result = load_monster_detail(int(idx))
+                if result:
+                    self.json_response({'data': result})
+                else:
+                    self.json_response({'error': 'not found'}, 404)
+            elif path == '/api/accounts':
+                page = int(params.get('page', [1])[0])
+                page_size = int(params.get('page_size', [20])[0])
+                filters = {
+                    'uid': params.get('uid', [None])[0],
+                    'name': params.get('name', [None])[0],
+                }
+                self.json_response(load_accounts(page, page_size, filters))
+            elif path.startswith('/api/account/'):
+                m_id = path.split('/')[-1]
+                result = load_account_detail(int(m_id))
+                if result:
+                    self.json_response({'data': result})
+                else:
+                    self.json_response({'error': 'not found'}, 404)
+            elif path.startswith('/api/item/'):
+                item_id = path.split('/')[-1]
+                result = load_item_detail(int(item_id))
+                if result:
+                    self.json_response({'data': result})
+                else:
+                    self.json_response({'error': 'not found'}, 404)
             elif path == '/api/gm/notice':
                 self.json_response(gm_get_notice())
             elif path == '/api/jobs':

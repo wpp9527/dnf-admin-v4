@@ -433,6 +433,64 @@
         .tag-danger { background: rgba(255,61,113,.1); color: var(--danger); }
         .tag-info { background: rgba(51,102,255,.1); color: var(--acc); }
         
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 16px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--muted);
+            border-bottom: 2px solid transparent;
+            transition: all .2s;
+        }
+        
+        .tab:hover {
+            color: var(--text);
+        }
+        
+        .tab.active {
+            color: var(--acc);
+            border-bottom-color: var(--acc);
+        }
+        
+        .tab-panel {
+            display: none;
+        }
+        
+        .tab-panel.active {
+            display: block;
+        }
+        
+        /* 属性网格 */
+        .prop-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+        
+        .prop-item {
+            padding: 12px;
+            background: var(--panel2);
+            border-radius: 8px;
+        }
+        
+        .prop-label {
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+        
+        .prop-value {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
         /* 描述列表 */
         .desc-list {
             display: grid;
@@ -709,6 +767,46 @@
                     </div>
                 </div>
                 
+                <!-- 账号列表 -->
+                <div class="panel" id="panel-accounts">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">账号列表</div>
+                        </div>
+                        <div class="card-body">
+                            <div class="search-box">
+                                <input type="text" class="form-input" id="account-uid" placeholder="搜索UID...">
+                                <input type="text" class="form-input" id="account-search" placeholder="搜索用户名...">
+                                <button class="btn btn-primary" onclick="loadAccounts()">搜索</button>
+                            </div>
+                            
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>UID</th>
+                                        <th>用户名</th>
+                                        <th>QQ</th>
+                                        <th>计费</th>
+                                        <th>管理员</th>
+                                        <th>上级UID</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="account-body"></tbody>
+                            </table>
+                            
+                            <div class="pagination">
+                                <div class="pagination-info" id="account-info">共 0 条</div>
+                                <div class="pagination-btns">
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('account', -1)">上一页</button>
+                                    <span id="account-page">1</span>
+                                    <button class="btn btn-ghost btn-sm" onclick="changePage('account', 1)">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
                 <!-- 物品查询 -->
                 <div class="panel" id="panel-items">
                     <div class="card">
@@ -816,6 +914,7 @@
                                         <th>攻击</th>
                                         <th>防御</th>
                                         <th>类型</th>
+                                        <th>操作</th>
                                     </tr>
                                 </thead>
                                 <tbody id="monster-body"></tbody>
@@ -962,30 +1061,60 @@
     
     <!-- 角色详情弹窗 -->
     <div class="modal" id="char-modal">
-        <div class="modal-content">
+        <div class="modal-content" style="max-width: 900px;">
             <div class="modal-header">
                 <div class="modal-title" id="char-modal-title">角色详情</div>
                 <button class="modal-close" onclick="closeModal('char-modal')">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="desc-list" id="char-detail"></div>
+                <!-- 基本信息 -->
+                <div class="desc-list" id="char-basic" style="margin-bottom: 20px;"></div>
                 
-                <div style="margin-top: 20px;">
-                    <h3 style="margin-bottom: 12px;">背包物品 (<span id="char-item-count">0</span>个)</h3>
+                <!-- 标签页 -->
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab(this, 'char-props')">属性</div>
+                    <div class="tab" onclick="switchTab(this, 'char-equip')">装备 (<span id="char-equip-count">0</span>)</div>
+                    <div class="tab" onclick="switchTab(this, 'char-inventory')">背包 (<span id="char-item-count">0</span>)</div>
+                    <div class="tab" onclick="switchTab(this, 'char-skills')">技能 (<span id="char-skill-count">0</span>)</div>
+                </div>
+                
+                <!-- 属性面板 -->
+                <div class="tab-panel active" id="char-props">
+                    <div class="prop-grid" id="char-props-grid"></div>
+                </div>
+                
+                <!-- 装备面板 -->
+                <div class="tab-panel" id="char-equip">
                     <table class="table">
                         <thead>
                             <tr>
                                 <th>槽位</th>
                                 <th>物品名称</th>
                                 <th>物品ID</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="char-equip-body"></tbody>
+                    </table>
+                </div>
+                
+                <!-- 背包面板 -->
+                <div class="tab-panel" id="char-inventory">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>槽位</th>
+                                <th>物品名称</th>
+                                <th>物品ID</th>
+                                <th>操作</th>
                             </tr>
                         </thead>
                         <tbody id="char-items-body"></tbody>
                     </table>
                 </div>
                 
-                <div style="margin-top: 20px;">
-                    <h3 style="margin-bottom: 12px;">角色技能 (<span id="char-skill-count">0</span>个)</h3>
+                <!-- 技能面板 -->
+                <div class="tab-panel" id="char-skills">
                     <table class="table">
                         <thead>
                             <tr>
@@ -1002,17 +1131,96 @@
         </div>
     </div>
     
+    <!-- 物品详情弹窗 -->
+    <div class="modal" id="item-modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <div class="modal-title" id="item-modal-title">物品详情</div>
+                <button class="modal-close" onclick="closeModal('item-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="prop-grid" id="item-props"></div>
+                <div style="margin-top: 16px;">
+                    <h4 style="margin-bottom: 8px;">描述</h4>
+                    <div id="item-desc" style="padding: 12px; background: var(--panel2); border-radius: 8px; font-size: 14px; line-height: 1.6;"></div>
+                </div>
+                <div style="margin-top: 16px;">
+                    <h4 style="margin-bottom: 8px;">详细说明</h4>
+                    <div id="item-detail-desc" style="padding: 12px; background: var(--panel2); border-radius: 8px; font-size: 14px; line-height: 1.6;"></div>
+                </div>
+                <div id="item-set-info" style="margin-top: 16px; display: none;">
+                    <h4 style="margin-bottom: 8px;">套装信息</h4>
+                    <div id="item-set" style="padding: 12px; background: var(--panel2); border-radius: 8px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 怪物详情弹窗 -->
+    <div class="modal" id="monster-modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <div class="modal-title" id="monster-modal-title">怪物详情</div>
+                <button class="modal-close" onclick="closeModal('monster-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="prop-grid" id="monster-props"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 账号详情弹窗 -->
+    <div class="modal" id="account-modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <div class="modal-header">
+                <div class="modal-title" id="account-modal-title">账号详情</div>
+                <button class="modal-close" onclick="closeModal('account-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="desc-list" id="account-detail"></div>
+                <div style="margin-top: 20px;">
+                    <h3 style="margin-bottom: 12px;">角色列表</h3>
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>昵称</th>
+                                <th>职业</th>
+                                <th>等级</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="account-chars-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <script>
         // 状态
         const state = {
             currentPage: 'dashboard',
             charPage: 1,
+            accountPage: 1,
             itemPage: 1,
             skillPage: 1,
             monsterPage: 1,
             pageSize: 20,
             jobs: {}
         };
+        
+        // 标签页切换
+        function switchTab(tab, panelId) {
+            // 更新标签状态
+            tab.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            
+            // 更新面板状态
+            const modalBody = tab.closest('.modal-body');
+            modalBody.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            modalBody.querySelector('#' + panelId).classList.add('active');
+        }
         
         // API 调用
         async function api(path, options = {}) {
@@ -1113,6 +1321,7 @@
             
             // 加载数据
             if (page === 'characters') loadCharacters();
+            if (page === 'accounts') loadAccounts();
             if (page === 'items') loadItems();
             if (page === 'skills') loadSkills();
             if (page === 'monsters') loadMonsters();
@@ -1180,38 +1389,74 @@
             
             document.getElementById('char-modal-title').textContent = '角色详情 - ' + (char.charac_name || '');
             
-            const detail = document.getElementById('char-detail');
-            detail.innerHTML = `
+            // 基本信息
+            const basic = document.getElementById('char-basic');
+            basic.innerHTML = `
                 <div class="desc-item"><div class="desc-label">ID</div><div class="desc-value">${char.m_id}</div></div>
                 <div class="desc-item"><div class="desc-label">昵称</div><div class="desc-value">${char.charac_name || '-'}</div></div>
                 <div class="desc-item"><div class="desc-label">职业</div><div class="desc-value">${char.job_name || '-'}</div></div>
                 <div class="desc-item"><div class="desc-label">等级</div><div class="desc-value">${char.lev || 0}</div></div>
-                <div class="desc-item"><div class="desc-label">HP</div><div class="desc-value">${char.HP || 0}/${char.maxHP || 0}</div></div>
-                <div class="desc-item"><div class="desc-label">MP</div><div class="desc-value">${char.maxMP || 0}</div></div>
-                <div class="desc-item"><div class="desc-label">物攻</div><div class="desc-value">${char.phy_attack || 0}</div></div>
-                <div class="desc-item"><div class="desc-label">魔攻</div><div class="desc-value">${char.mag_attack || 0}</div></div>
-                <div class="desc-item"><div class="desc-label">物防</div><div class="desc-value">${char.phy_defense || 0}</div></div>
-                <div class="desc-item"><div class="desc-label">魔防</div><div class="desc-value">${char.mag_defense || 0}</div></div>
-                <div class="desc-item"><div class="desc-label">疲劳</div><div class="desc-value">${char.fatigue || 0}/${char.max_fatigue || 156}</div></div>
+                <div class="desc-item"><div class="desc-label">性别</div><div class="desc-value">${char.sex === 0 ? '男' : '女'}</div></div>
                 <div class="desc-item"><div class="desc-label">创建时间</div><div class="desc-value">${char.create_time || '-'}</div></div>
             `;
             
-            // 背包物品
-            document.getElementById('char-item-count').textContent = char.inventory_count || 0;
+            // 属性面板
+            const props = document.getElementById('char-props-grid');
+            props.innerHTML = `
+                <div class="prop-item"><div class="prop-label">HP</div><div class="prop-value">${char.HP || 0}/${char.maxHP || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">MP</div><div class="prop-value">${char.maxMP || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">物理攻击</div><div class="prop-value">${char.phy_attack || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">魔法攻击</div><div class="prop-value">${char.mag_attack || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">物理防御</div><div class="prop-value">${char.phy_defense || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">魔法防御</div><div class="prop-value">${char.mag_defense || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">疲劳值</div><div class="prop-value">${char.fatigue || 0}/${char.max_fatigue || 156}</div></div>
+                <div class="prop-item"><div class="prop-label">移动速度</div><div class="prop-value">${char.move_speed || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">攻击速度</div><div class="prop-value">${char.attack_speed || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">施法速度</div><div class="prop-value">${char.cast_speed || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">跳跃力</div><div class="prop-value">${char.jump || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">负重</div><div class="prop-value">${char.charac_weight || 0}/${char.inven_weight || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">HP回复</div><div class="prop-value">${char.hp_regen || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">MP回复</div><div class="prop-value">${char.mp_regen || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">硬直恢复</div><div class="prop-value">${char.hit_recovery || 0}</div></div>
+            `;
+            
+            // 分离装备和背包物品
+            const equipItems = (char.inventory || []).filter(i => i.slot < 100);
+            const backpackItems = (char.inventory || []).filter(i => i.slot >= 100);
+            
+            // 装备面板
+            document.getElementById('char-equip-count').textContent = equipItems.length;
+            const equipBody = document.getElementById('char-equip-body');
+            equipBody.innerHTML = '';
+            
+            for (const item of equipItems) {
+                equipBody.innerHTML += `
+                    <tr>
+                        <td>${item.slot_name || item.slot}</td>
+                        <td>${item.item_name || '-'}</td>
+                        <td>${item.it_id}</td>
+                        <td><button class="btn btn-ghost btn-sm" onclick="showItemDetail(${item.it_id})">详情</button></td>
+                    </tr>
+                `;
+            }
+            
+            // 背包面板
+            document.getElementById('char-item-count').textContent = backpackItems.length;
             const itemsBody = document.getElementById('char-items-body');
             itemsBody.innerHTML = '';
             
-            for (const item of (char.inventory || [])) {
+            for (const item of backpackItems) {
                 itemsBody.innerHTML += `
                     <tr>
                         <td>${item.slot_name || item.slot}</td>
                         <td>${item.item_name || '-'}</td>
                         <td>${item.it_id}</td>
+                        <td><button class="btn btn-ghost btn-sm" onclick="showItemDetail(${item.it_id})">详情</button></td>
                     </tr>
                 `;
             }
             
-            // 角色技能
+            // 技能面板
             document.getElementById('char-skill-count').textContent = char.skills_count || 0;
             const skillsBody = document.getElementById('char-skills-body');
             skillsBody.innerHTML = '';
@@ -1227,12 +1472,176 @@
                 `;
             }
             
+            // 重置到第一个标签
+            const tabs = document.querySelector('#char-modal .tabs');
+            if (tabs) {
+                switchTab(tabs.querySelector('.tab'), 'char-props');
+            }
+            
             document.getElementById('char-modal').classList.add('open');
         }
         
         // 关闭弹窗
         function closeModal(id) {
             document.getElementById(id).classList.remove('open');
+        }
+        
+        // 加载账号列表
+        async function loadAccounts() {
+            const uid = document.getElementById('account-uid').value;
+            const search = document.getElementById('account-search').value;
+            
+            const params = new URLSearchParams({
+                page: state.accountPage,
+                page_size: state.pageSize
+            });
+            if (uid) params.append('uid', uid);
+            if (search) params.append('name', search);
+            
+            const data = await api('accounts?' + params);
+            
+            const tbody = document.getElementById('account-body');
+            tbody.innerHTML = '';
+            
+            for (const acc of (data.data || [])) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${acc.UID}</td>
+                        <td>${acc.accountname || '-'}</td>
+                        <td>${acc.qq || '-'}</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>${acc.billing || 0}</td>
+                        <td>
+                            <button class="btn btn-ghost btn-sm" onclick="showAccountDetail(${acc.UID})">详情</button>
+                        </td>
+                    </tr>
+                `;
+            }
+            
+            document.getElementById('account-info').textContent = `共 ${data.total || 0} 条`;
+            document.getElementById('account-page').textContent = state.accountPage;
+        }
+        
+        // 显示账号详情
+        async function showAccountDetail(uid) {
+            const data = await api('account/' + uid);
+            const acc = data.data;
+            
+            if (!acc) return;
+            
+            document.getElementById('account-modal-title').textContent = '账号详情 - ' + (acc.accountname || '');
+            
+            const detail = document.getElementById('account-detail');
+            detail.innerHTML = `
+                <div class="desc-item"><div class="desc-label">UID</div><div class="desc-value">${acc.UID}</div></div>
+                <div class="desc-item"><div class="desc-label">用户名</div><div class="desc-value">${acc.accountname || '-'}</div></div>
+                <div class="desc-item"><div class="desc-label">QQ</div><div class="desc-value">${acc.qq || '-'}</div></div>
+                <div class="desc-item"><div class="desc-label">计费</div><div class="desc-value">${acc.billing || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">VIP</div><div class="desc-value">${acc.VIP || '-'}</div></div>
+                <div class="desc-item"><div class="desc-label">管理员</div><div class="desc-value">${acc.admin || 0}</div></div>
+                <div class="desc-item"><div class="desc-label">上级UID</div><div class="desc-value">${acc.parent_uid || 0}</div></div>
+            `;
+            
+            // 角色列表
+            const charsBody = document.getElementById('account-chars-body');
+            charsBody.innerHTML = '';
+            
+            for (const char of (acc.characters || [])) {
+                charsBody.innerHTML += `
+                    <tr>
+                        <td>${char.charac_no}</td>
+                        <td>${char.charac_name || '-'}</td>
+                        <td>${char.job_name || '-'}</td>
+                        <td>${char.lev || 0}</td>
+                        <td>
+                            <button class="btn btn-ghost btn-sm" onclick="closeModal('account-modal'); showCharDetail(${char.charac_no})">查看详情</button>
+                        </td>
+                    </tr>
+                `;
+            }
+            
+            document.getElementById('account-modal').classList.add('open');
+        }
+        
+        // 显示物品详情
+        async function showItemDetail(itemId) {
+            const data = await api('item/' + itemId);
+            const item = data.data;
+            
+            if (!item) return;
+            
+            document.getElementById('item-modal-title').textContent = '物品详情 - ' + (item.it_name || itemId);
+            
+            // 基本属性
+            const props = document.getElementById('item-props');
+            props.innerHTML = `
+                <div class="prop-item"><div class="prop-label">物品ID</div><div class="prop-value">${item.it_no}</div></div>
+                <div class="prop-item"><div class="prop-label">名称</div><div class="prop-value">${item.it_name || '-'}</div></div>
+                <div class="prop-item"><div class="prop-label">英文名</div><div class="prop-value">${item.it_eng_name || '-'}</div></div>
+                <div class="prop-item"><div class="prop-label">类型</div><div class="prop-value">${item.master_type_name || '-'}</div></div>
+                <div class="prop-item"><div class="prop-label">稀有度</div><div class="prop-value">${item.rarity_name || '-'}</div></div>
+                <div class="prop-item"><div class="prop-label">等级</div><div class="prop-value">${item.level || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">HP</div><div class="prop-value">${item.hp_max || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">MP</div><div class="prop-value">${item.mp_max || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">物攻</div><div class="prop-value">${item.phy_att || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">物防</div><div class="prop-value">${item.phy_def || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">魔攻</div><div class="prop-value">${item.mag_att || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">魔防</div><div class="prop-value">${item.mag_def || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">价格</div><div class="prop-value">${item.price || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">重量</div><div class="prop-value">${item.weight || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">耐久度</div><div class="prop-value">${item.durability || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">冷却时间</div><div class="prop-value">${item.cooltime || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">移动速度</div><div class="prop-value">${item.mov_speed || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">攻击速度</div><div class="prop-value">${item.att_speed || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">暴击率</div><div class="prop-value">${item.criticalhit_rate || 0}%</div></div>
+            `;
+            
+            // 描述
+            document.getElementById('item-desc').textContent = item.it_explain || '无描述';
+            document.getElementById('item-detail-desc').textContent = item.detail_explain || item.flavor_text || '无详细说明';
+            
+            // 套装信息
+            const setInfo = document.getElementById('item-set-info');
+            if (item.set_name || item.set_item) {
+                setInfo.style.display = 'block';
+                document.getElementById('item-set').innerHTML = `
+                    <div><strong>套装名称:</strong> ${item.set_name || '-'}</div>
+                    <div><strong>套装件数:</strong> ${item.set_item || '-'}</div>
+                    <div><strong>套装效果:</strong> ${item.fullset_basic_explain || '-'}</div>
+                    <div style="margin-top: 8px;">${item.fullset_detail_explain || ''}</div>
+                `;
+            } else {
+                setInfo.style.display = 'none';
+            }
+            
+            document.getElementById('item-modal').classList.add('open');
+        }
+        
+        // 显示怪物详情
+        async function showMonsterDetail(idx) {
+            const data = await api('monster/' + idx);
+            const monster = data.data;
+            
+            if (!monster) return;
+            
+            document.getElementById('monster-modal-title').textContent = '怪物详情 - ' + (monster.mon_name_kr || idx);
+            
+            const props = document.getElementById('monster-props');
+            props.innerHTML = `
+                <div class="prop-item"><div class="prop-label">ID</div><div class="prop-value">${monster.idx}</div></div>
+                <div class="prop-item"><div class="prop-label">名称</div><div class="prop-value">${monster.mon_name_kr || '-'}</div></div>
+                <div class="prop-item"><div class="prop-label">等级</div><div class="prop-value">${monster.level || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">HP</div><div class="prop-value">${monster.hp || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">MP</div><div class="prop-value">${monster.mp || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">攻击</div><div class="prop-value">${monster.attack || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">防御</div><div class="prop-value">${monster.defense || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">经验</div><div class="prop-value">${monster.exp || 0}</div></div>
+                <div class="prop-item"><div class="prop-label">类型</div><div class="prop-value">${monster.monster_type || '-'}</div></div>
+            `;
+            
+            document.getElementById('monster-modal').classList.add('open');
         }
         
         // 加载物品列表
@@ -1256,7 +1665,7 @@
                         <td>${item.id}</td>
                         <td>${item.name}</td>
                         <td>${item.category}</td>
-                        <td><button class="btn btn-ghost btn-sm">详情</button></td>
+                        <td><button class="btn btn-ghost btn-sm" onclick="showItemDetail(${item.id})">详情</button></td>
                     </tr>
                 `;
             }
@@ -1322,6 +1731,7 @@
                         <td>${monster.attack || 0}</td>
                         <td>${monster.defense || 0}</td>
                         <td>${monster.monster_type || '-'}</td>
+                        <td><button class="btn btn-ghost btn-sm" onclick="showMonsterDetail(${monster.idx})">详情</button></td>
                     </tr>
                 `;
             }
@@ -1336,6 +1746,7 @@
             state[pageKey] = Math.max(1, state[pageKey] + delta);
             
             if (type === 'char') loadCharacters();
+            if (type === 'account') loadAccounts();
             if (type === 'item') loadItems();
             if (type === 'skill') loadSkills();
             if (type === 'monster') loadMonsters();
