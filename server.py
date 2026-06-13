@@ -160,7 +160,7 @@ def load_pvf_items():
     _pvf_cache_time = time.time()
     return items
 
-def get_item_name(item_id):
+def get_item_name(item_id, slot=0):
     """获取物品名称（优先从PVF查询）"""
     pvf_items = load_pvf_items()
     for item in pvf_items:
@@ -168,14 +168,50 @@ def get_item_name(item_id):
             return item['name']
     
     # 从数据库查询（dnf_item_info 在 taiwan_cain_web 数据库）
-    sql = "SELECT it_name FROM taiwan_cain_web.dnf_item_info WHERE it_no = %s"
+    sql = "SELECT it_name, master_type, sub_type FROM taiwan_cain_web.dnf_item_info WHERE it_no = %s"
     result = query_db(sql, (item_id,), 'taiwan_cain_web')
     if result:
         name = decode_bytes(result[0].get('it_name'))
-        if name and not name.startswith('b\''):
+        if name and name.strip() and not name.startswith('b\''):
             return name
+        
+        # 名称为空时，用分类生成名称
+        master_type = result[0].get('master_type', 0)
+        sub_type = result[0].get('sub_type', 0)
+        
+        # 物品分类名称
+        MASTER_TYPES = {
+            0: '消耗品', 1: '材料', 2: '任务物品', 3: '宠物',
+            4: '时装', 5: '宝珠', 6: '副职业材料',
+            100: '武器', 101: '防具', 102: '饰品', 103: '特殊装备',
+        }
+        
+        # 子分类名称
+        SUB_TYPES = {
+            1010: '上衣', 1011: '头肩', 1012: '下装', 1013: '鞋', 1014: '腰带',
+            1020: '项链', 1021: '手镯', 1022: '戒指',
+            1030: '辅助装备', 1031: '魔法石', 1032: '耳环',
+            1040: '称号', 1050: '宠物', 1060: '光环', 1070: '皮肤',
+        }
+        
+        category = MASTER_TYPES.get(master_type, f'T{master_type}')
+        sub_name = SUB_TYPES.get(sub_type, f'S{sub_type}')
+        
+        return f'{category}-{sub_name}'
     
-    return f"未知物品-{item_id}"
+    # 数据库无记录时，用槽位名+ID
+    SLOT_NAMES = {
+        0: '武器', 1: '上衣', 2: '头肩', 3: '下装', 4: '鞋',
+        5: '腰带', 6: '项链', 7: '手镯', 8: '戒指', 9: '辅助装备',
+        10: '魔法石', 11: '耳环', 12: '称号', 13: '宠物', 14: '光环',
+        15: '皮肤', 16: '武器装扮', 17: '上衣装扮', 18: '头肩装扮',
+        19: '下装扮', 20: '鞋装扮', 21: '腰带装扮', 22: '项链装扮',
+        23: '手镯装扮', 24: '戒指装扮', 25: '辅助装备装扮', 26: '魔法石装扮',
+        27: '耳环装扮', 28: '称号装扮', 29: '宠物装扮', 30: '光环装扮',
+        31: '皮肤装扮', 100: '消耗品', 101: '材料', 102: '任务物品',
+    }
+    slot_name = SLOT_NAMES.get(slot, '物品')
+    return f"{slot_name}-{item_id}"
 
 # ==================== 数据加载 ====================
 
@@ -218,10 +254,15 @@ def load_characters(page=1, page_size=20, filters=None):
 
 def load_character_detail(char_id):
     """加载角色详情"""
-    sql = "SELECT * FROM charac_info WHERE m_id = %s"
+    # 先查询角色信息，获取 charac_no
+    sql = "SELECT * FROM charac_info WHERE charac_no = %s"
     chars = query_db(sql, (char_id,))
     if not chars:
-        return None
+        # 尝试用 m_id 查询
+        sql = "SELECT * FROM charac_info WHERE m_id = %s"
+        chars = query_db(sql, (char_id,))
+        if not chars:
+            return None
     
     char = chars[0]
     char['charac_name'] = decode_bytes(char.get('charac_name'))
@@ -232,9 +273,10 @@ def load_character_detail(char_id):
         if char.get(field) and hasattr(char[field], 'strftime'):
             char[field] = char[field].strftime('%Y-%m-%d %H:%M:%S')
     
-    # 加载背包物品
+    # 使用 charac_no 查询背包物品
+    charac_no = char.get('charac_no')
     items_sql = "SELECT * FROM taiwan_cain_2nd.user_items WHERE charac_no = %s ORDER BY slot LIMIT 100"
-    items = query_db(items_sql, (char_id,), 'taiwan_cain_2nd')
+    items = query_db(items_sql, (charac_no,), 'taiwan_cain_2nd')
     
     SLOT_NAMES = {
         0: '武器', 1: '上衣', 2: '头肩', 3: '下装', 4: '鞋',
@@ -249,8 +291,9 @@ def load_character_detail(char_id):
     }
     
     for item in items:
-        item['slot_name'] = SLOT_NAMES.get(item.get('slot'), f"槽位{item.get('slot')}")
-        item['item_name'] = get_item_name(item.get('it_id'))
+        slot = item.get('slot', 0)
+        item['slot_name'] = SLOT_NAMES.get(slot, f"槽位{slot}")
+        item['item_name'] = get_item_name(item.get('it_id'), slot)
     
     char['inventory'] = items
     char['inventory_count'] = len(items)
@@ -346,23 +389,24 @@ def load_monsters(query='', page=1, page_size=50):
     offset = (page - 1) * page_size
     
     if query:
-        sql = "SELECT * FROM dnf_monster_info WHERE mon_name_kr LIKE %s ORDER BY idx LIMIT %s OFFSET %s"
+        sql = "SELECT * FROM taiwan_cain_web.dnf_monster_info WHERE mon_name_kr LIKE %s ORDER BY idx LIMIT %s OFFSET %s"
         params = (f"%{query}%", page_size, offset)
-        count_sql = "SELECT COUNT(*) as total FROM dnf_monster_info WHERE mon_name_kr LIKE %s"
+        count_sql = "SELECT COUNT(*) as total FROM taiwan_cain_web.dnf_monster_info WHERE mon_name_kr LIKE %s"
         count_params = (f"%{query}%",)
     else:
-        sql = "SELECT * FROM dnf_monster_info ORDER BY idx LIMIT %s OFFSET %s"
+        sql = "SELECT * FROM taiwan_cain_web.dnf_monster_info ORDER BY idx LIMIT %s OFFSET %s"
         params = (page_size, offset)
-        count_sql = "SELECT COUNT(*) as total FROM dnf_monster_info"
+        count_sql = "SELECT COUNT(*) as total FROM taiwan_cain_web.dnf_monster_info"
         count_params = ()
     
-    monsters = query_db(sql, params)
-    total_result = query_db(count_sql, count_params)
+    monsters = query_db(sql, params, 'taiwan_cain_web')
+    total_result = query_db(count_sql, count_params, 'taiwan_cain_web')
     total = total_result[0]['total'] if total_result else 0
     
     # 解码
     for m in monsters:
         m['mon_name_kr'] = decode_bytes(m.get('mon_name_kr'))
+        m['monster_type'] = decode_bytes(m.get('monster_type'))
     
     return {'data': monsters, 'total': total, 'page': page, 'page_size': page_size}
 
